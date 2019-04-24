@@ -112,6 +112,8 @@ Otherwise, `status` is one of the following errno values:
     The RPC request was malformed.
 - `EBADF`
     `fd` isn't a valid open file descriptor.
+- `EAGAIN`
+    The lock is currently held by another client.
 
 If the fd represented a lock with associated memory, the on success (that is,
 if the client aquires the lock, the response is:
@@ -139,7 +141,6 @@ where `status` is one of the following values:
     The RPC request was malformed.
 - `EBADF`
     `fd` isn't a valid open file descriptor.
-
 
 
 `unlock`

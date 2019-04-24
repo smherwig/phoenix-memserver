@@ -75,8 +75,12 @@ static int smdish_memfile_open_or_create(struct smdish_client *client,
         const char *name, uint32_t *fd);
 
 static int smdish_memfile_close(struct smdish_client *client, uint32_t fd);
-static int smdish_memfile_lock(struct smdish_client *client, uint32_t fd);
-static int smdish_memfile_unlock(struct smdish_client *client, uint32_t fd);
+
+static int smdish_memfile_lock(struct smdish_client *client, uint32_t fd,
+        struct smdish_memfile **mf_out);
+
+static int smdish_memfile_unlock(struct smdish_client *client, uint32_t fd,
+        struct smdish_memfile **mf_out);
 
 static int smdish_memfile_add_map(struct smdish_client *client, uint32_t fd,
         uint32_t size);
@@ -298,8 +302,13 @@ done:
     return (error);
 }
 
+/* 
+ * as a convenience, on success, if mf_out is not NULL, return
+ * the memfile to the caller.
+ */
 static int
-smdish_memfile_lock(struct smdish_client *client, uint32_t fd)
+smdish_memfile_lock(struct smdish_client *client, uint32_t fd,
+        struct smdish_memfile **mf_out)
 {
     int error = 0;
     struct smdish_fdtable *fdtab = client->cli_fdtab;
@@ -310,26 +319,36 @@ smdish_memfile_lock(struct smdish_client *client, uint32_t fd)
     mf = smdish_fdtable_getfile(fdtab, fd);
     if (mf == NULL) {
         error = EBADF;
-        goto done;
+        goto fail;
     }
 
     if (mf->f_lock_owner_id == SMDISH_NO_OWNER) {
         mf->f_lock_owner_id = client->cli_id;
-        goto done;
+        goto succeed;
     }
 
     if (mf->f_lock_owner_id == client->cli_id)
-        goto done;
+        goto succeed;
 
     error = EAGAIN;
+    goto fail;
 
-done:
+
+succeed:
+    if (mf_out != NULL)
+        *mf_out = mf;
+fail:
     RHO_TRACE_EXIT();
     return (error);
 }
 
+/* 
+ * as a convenience, on success, if mf_out is not NULL, return
+ * the memfile to the caller.
+ */
 static int
-smdish_memfile_unlock(struct smdish_client *client, uint32_t fd)
+smdish_memfile_unlock(struct smdish_client *client, uint32_t fd,
+        struct smdish_memfile **mf_out)
 {
     int error = 0;
     struct smdish_fdtable *fdtab = client->cli_fdtab;
@@ -348,6 +367,8 @@ smdish_memfile_unlock(struct smdish_client *client, uint32_t fd)
         goto done;
     } else {
         mf->f_lock_owner_id = SMDISH_NO_OWNER;
+        if (mf_out != NULL)
+            *mf_out = mf;
     }
 
 done:
@@ -567,6 +588,7 @@ smdish_lock_proxy(struct smdish_client *client)
     struct rpc_agent *agent = client->cli_agent;
     struct rho_buf *buf = agent->ra_bodybuf;
     uint32_t fd = 0;
+    struct smdish_memfile *mf = NULL;
 
     RHO_TRACE_ENTER();
 
@@ -576,12 +598,15 @@ smdish_lock_proxy(struct smdish_client *client)
         goto done;
     }
 
-    error = smdish_memfile_lock(client, fd);
+    error = smdish_memfile_lock(client, fd, &mf);
 
 done:
     rpc_agent_new_msg(agent, error);
     if (!error) {
-        /* TODO: set response body */
+        /* FIXME: check for integer overflow */
+        rpc_agent_set_bodylen(agent, 4 + mf->f_size);
+        rho_buf_writeu32be(buf, mf->f_size);
+        rho_buf_write(buf, mf->f_addr, mf->f_size);
     }
 
     RHO_TRACE_EXIT();
@@ -595,6 +620,8 @@ smdish_unlock_proxy(struct smdish_client *client)
     struct rpc_agent *agent = client->cli_agent;
     struct rho_buf *buf = agent->ra_bodybuf;
     uint32_t fd = 0;
+    uint32_t size = 0;
+    struct smdish_memfile *mf = NULL;
 
     RHO_TRACE_ENTER();
 
@@ -604,11 +631,24 @@ smdish_unlock_proxy(struct smdish_client *client)
         goto done;
     }
 
-    error = smdish_memfile_unlock(client, fd);
+    error = smdish_memfile_unlock(client, fd, &mf);
     if (error != 0)
         goto done;
 
-    /* TODO: read request body */ 
+    error = rho_buf_readu32be(buf, &size);
+    if (error == -1) {
+        error = EPROTO;
+        goto done;
+    }
+
+    /* 
+     * FIXME: check that the read will succeed beforehand; otherwise,
+     * mf->addr is left in a corrrupted state on failure
+     */
+    if (rho_buf_read(buf, mf->f_addr, size) != size) {
+        error = EPROTO;
+        goto done;
+    }
 
 done:
     rpc_agent_new_msg(agent, error);
