@@ -7,14 +7,14 @@ CFLAGS= -Wall -Werror -Wextra
 LDFLAGS= $(STATIC_LIBS) -lssl -lcrypto -lpthread
 
 OBJS = \
-	   mdishserver.o
+	   smdishserver.o
 
-mdishserver: $(OBJS)
+smdishserver: $(OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-mdishserver.o: mdishserver.c mdish.h
+smdishserver.o: smdishserver.c smdish.h
 
 clean:
-	rm -f mdishserver $(OBJS)
+	rm -f smdishserver $(OBJS)
 
 .PHONY: clean

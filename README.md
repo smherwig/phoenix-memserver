@@ -42,12 +42,11 @@ Header:
 
 Where status is one of the following errno values
 
-- 
--
--
--
--
-
+- `EPROTO`
+    The RPC request was malformed.
+- `ENAMETOOLONG`
+    `name` is too long.  The longest name currently allowed is 255 characters
+    (no nuls).
 
 `close`
 -------
@@ -73,9 +72,10 @@ Header:
 Where status is `0` on success, and one of the following errno values
 on failure:
 
--
--
--
+- `EPROTO`
+    The RPC request was malformed.
+- `EBADF`
+    `fd` isn't a valid open file descriptor.
 
 
 ### Response
@@ -96,6 +96,51 @@ Body:
 
 ### Response
 
+If fd is a pure lock (that is, does not have a memory mapping), then the
+response is:
+
+```
+Header:
+    u32         status  
+    u32         body_size   0
+```
+
+On success (that is, if the client acquires the lock), `status` is `0`.
+Otherwise, `status` is one of the following errno values:
+
+- `EPROTO`
+    The RPC request was malformed.
+- `EBADF`
+    `fd` isn't a valid open file descriptor.
+
+If the fd represented a lock with associated memory, the on success (that is,
+if the client aquires the lock, the response is:
+
+```
+Header:
+    u32         status      0
+    u32         body_size   
+Body:
+    u32         data_size
+    bytearray   data
+```
+
+On failure, the response is
+
+```
+Header:
+    u32         status      
+    u32         body_size   0
+```
+
+where `status` is one of the following values:
+
+- `EPROTO`
+    The RPC request was malformed.
+- `EBADF`
+    `fd` isn't a valid open file descriptor.
+
+
 
 `unlock`
 --------
@@ -114,6 +159,23 @@ Body:
 
 ### Response
 
+The response is:
+
+```
+Header:
+    u32         status      
+    u32         body_size   0
+```
+
+On success, `status` is `0`.  On failure, `status` is one of the following:
+
+- `EPROTO`
+    The RPC request was malformed.
+- `EBADF`
+    `fd` isn't a valid open file descriptor.
+- `EINVAL`
+    The client is trying to unlock a file for which it does not possess the
+    lock.
 
 `mmap`
 ------
@@ -131,6 +193,22 @@ Body:
 
 ### Response
 
+The response is
+
+```
+Header:
+    u32         status     
+    u32         body_size   0 
+```
+
+On success, `status` is `0`; on error, `status` is one of the following
+errno values:
+
+- `EPROTO`
+    The RPC request was malformed.
+- `EBADF`
+    `fd` isn't a valid open file descriptor.
+
 
 `munmap`
 --------
@@ -147,6 +225,24 @@ Body:
 
 ### Response
 
+The response is
+
+```
+Header:
+    u32         status     
+    u32         body_size   0 
+```
+
+On success, `status` is `0`; on error, `status` is one of the following
+errno values:
+
+- `EPROTO`
+    The RPC request was malformed.
+- `EBADF`
+    `fd` isn't a valid open file descriptor.
+- `EINVAL`
+    The file does not have any memory mapped (the file is a pure lock file).
+
 
 `new_fdtable`
 -------------
@@ -161,12 +257,14 @@ Header:
 
 ### Response
 
+The response is always success:
 
 ```
 Header:
     u32         status      0
     u32         body_size   0
 ```
+
 
 
 `fork`
@@ -181,6 +279,10 @@ Header:
 ```
 
 ### Response
+
+The response is always success, and includes a bearer token, `child_ident` for
+the child.  The child process should present `child_ident`  to the server
+in a `child_attach` RPC in order to attach to the cloned file descriptor table.
 
 ```
 Header:
@@ -213,6 +315,11 @@ Header:
 ```
 
 On success, `status` is `0`.  On failure, `status` is one of the following:
+
+- `EPROTO`
+    The RPC request was malformed.
+- `EINVAL`
+    `child_ident` is not a valid token.
 
 -
 -
