@@ -6,7 +6,7 @@ import os
 import shlex
 import sys
 
-import mdish
+import smdish
 
 # TODO:
 #   add readline support
@@ -74,31 +74,9 @@ def _parse_int(s, tag):
     else:
         return i
 
-def _file_open_proxy(client, args):
-    name = args[0]
-    fd = client.file_open(name)
-    return fd
-
-def _file_close_proxy(client, args):
-    fd = _parse_int(args[0], 'close: fd must be an int')
-    error = client.file_close(fd)
+def _new_fdtable_proxy(client, args):
+    error = client.new_fdtable()
     return error
-
-def _file_advlock_proxy(client, args):
-    fd = _parse_int(args[0], 'lock: fd must be an int')
-    lockop = _parse_int(args[1], 'lock: lockop must be an int')
-    error = client.file_advlock(fd, lockop)
-    return error
-
-def _mmap_proxy(client, args):
-    fd = _parse_int(args[0], 'mmap: fd must be an int')
-    size = _parse_int(args[1], 'mmap: size must be an int')
-    error = client.mmap(fd, size)
-    return fd
-
-# TOOD: POSTPONE
-def _munmap_proxy(client, args):
-    pass
 
 def _fork_proxy(client, args):
     ident = client.fork()
@@ -109,9 +87,35 @@ def _child_attach_proxy(client, args):
     error = client.child_attach(ident)
     return error
 
-def _new_fdtable_proxy(client, args):
-    error = client.new_fdtable()
+def _open_proxy(client, args):
+    name = args[0]
+    fd = client.file_open(name)
+    return fd
+
+def _close_proxy(client, args):
+    fd = _parse_int(args[0], 'close: fd must be an int')
+    error = client.file_close(fd)
     return error
+
+def _lock_proxy(client, args):
+    fd = _parse_int(args[0], 'lock: fd must be an int')
+    error = client.lock(fd)
+    return error
+
+def _unlock_proxy(client, args):
+    fd = _parse_int(args[0], 'unlock: fd must be an int')
+    error = client.unlock(fd)
+    return error
+
+def _mmap_proxy(client, args):
+    fd = _parse_int(args[0], 'mmap: fd must be an int')
+    size = _parse_int(args[1], 'mmap: size must be an int')
+    error = client.mmap(fd, size)
+    return fd
+
+def _munmap_proxy(client, args):
+    # TODO: implement
+    pass
 
 def _shmwrite_proxy(client, args):
     data = args[0]
@@ -126,14 +130,15 @@ def _shmseek_proxy(client, args):
     return client.shmseek(i)
 
 _HELP = """
-file_open <name>
-file_close <fd>
-file_advlock <fd> <1 (lock) | 2 (unlock)>
+open <name>
+close <fd>
+lock <fd>
+unlock <fd>
 mmap <fd> <size>
 munmap (NOT IMPLEMENTED)
+new_fdtable
 fork
 child_attach <id>
-new_fdtable
 
 shmwrite <data>
 smhread  <nbytes>
@@ -145,19 +150,20 @@ def _help(client, args):
 
 _cmdtable = {
     # cmd             func              nargs
-    'file_open':    (_file_open_proxy,      1),
-    'file_close':   (_file_close_proxy,     1),
-    'file_advlock': (_file_advlock_proxy,   2),
-    'mmap':         (_mmap_proxy,           2),
-    'munmap':       (_munmap_proxy,         1),
+    'new_fdtable':  (_new_fdtable_proxy,    0),
     'fork':         (_fork_proxy,           0),
     'child_attach': (_child_attach_proxy,   1),
-    'new_fdtable':  (_new_fdtable_proxy,    0),
+    'open':         (_open_proxy,           1),
+    'close':        (_close_proxy,          1),
+    'lock':         (_lock_proxy,           1),
+    'unlock':       (_unlock_proxy,         1),
+    'mmap':         (_mmap_proxy,           2),
+    'munmap':       (_munmap_proxy,         1),
     # local
-    'shmwrite':  (_shmwrite_proxy, 1),
-    'shmread':   (_shmread_proxy,  1),
-    'shmseek':   (_shmseek_proxy,  1),
-    '?'      :   (_help,           0),
+    'shmwrite':     (_shmwrite_proxy,       1),
+    'shmread':      (_shmread_proxy,        1),
+    'shmseek':      (_shmseek_proxy,        1),
+    '?'      :      (_help,                 0),
 }
 
 def _fscall(client, cmd, args): 
@@ -173,7 +179,7 @@ def _fscall(client, cmd, args):
 
     try:
         ret = fn(client, args)
-    except (ValueError, mdish.MDISHError) as err:
+    except (ValueError, smdish.SMDISHError) as err:
         _warn(str(err))
         return
     print ret 
@@ -232,7 +238,7 @@ def main(argv):
     if any(sslinfo) and not all(sslinfo):
         _usage(1)
 
-    client = mdish.MDISHClient(udspath, cacert, cert, privkey, verbose=True)
+    client = smdish.SMDISHClient(udspath, cacert, cert, privkey, verbose=True)
     client.connect()
     _cmdloop(client)
 

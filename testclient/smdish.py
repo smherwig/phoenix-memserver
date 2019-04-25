@@ -16,19 +16,15 @@ import time
 #
 #  - A client can only have one shared memory segment.
 
-_MDISH_OP_FILE_OPEN     = 0
-_MDISH_OP_FILE_CLOSE    = 1
-_MDISH_OP_FILE_ADVLOCK  = 2
-_MDISH_OP_MMAP          = 3
-_MDISH_OP_MUNMAP        = 4
-_MDISH_OP_FORK          = 5
-_MDISH_OP_CHILD_ATTACH  = 6
-_MDISH_OP_NEW_FDTABLE   = 7
-
-_MDISH_LOCKOP_LOCK      = 1
-_MDISH_LOCKOP_UNLOCK    = 2
-
-_MDISH_ERPC = 999
+_SMDISH_OP_NEW_FDTABLE   = 0
+_SMDISH_OP_FORK          = 1
+_SMDISH_OP_CHILD_ATTACH  = 2
+_SMDISH_OP_OPEN          = 3
+_SMDISH_OP_CLOSE         = 4
+_SMDISH_OP_LOCK          = 5
+_SMDISH_OP_UNLOCK        = 6
+_SMDISH_OP_MMAP          = 7
+_SMDISH_OP_MUNMAP        = 8
 
 def _pp_hexlify(buf):
     b = binascii.hexlify(buf)
@@ -64,18 +60,15 @@ class FixedBuffer:
     def getvalue(self):
         return self.segment.getvalue()
 
-class MDISHError(OSError):
+class SMDISHError(OSError):
     def __init__(self, errnoval, filename=None):
-        if errnoval == _MDISH_ERPC:
-            msg = 'mdish RPC error'
-        else:
-            msg = os.strerror(errnoval)
+        msg = os.strerror(errnoval)
         if filename:     
             OSError.__init__(self, errnoval, msg, filename)
         else:
             OSError.__init__(self, errnoval, msg)
 
-class MDISHClient:
+class SMDISHClient:
     def __init__(self, udspath, cacert=None, cert=None, privkey=None,
             verbose=False):
         self.udspath = udspath
@@ -140,93 +133,20 @@ class MDISHClient:
         self._debug('parsed response: status=%d, bodylen=%d', status, bodylen)
         return (status, body)
 
-    def file_open(self, name):
-        body = self._marshal_str(name)
-        header = self._marshal_hdr(_MDISH_OP_FILE_OPEN, len(body))
-        req = header + body
-        error, respbody = self._request(req)
-        if error != 0:
-            assert respbody == ''
-            raise MDISHError(error, name)
-        assert len(respbody) == 4
-        fd = struct.unpack('>I', respbody)[0]
-        return fd
-
-    def file_close(self, fd):
-        body = struct.pack('>I', fd)
-        header = self._marshal_hdr(_MDISH_OP_FILE_CLOSE, len(body))
-        req = header + body
+    def new_fdtable(self):
+        req = self._marshal_hdr(_SMDISH_OP_NEW_FDTABLE, 0)
         error, respbody = self._request(req)
         assert respbody == ''
         if error != 0:
-            raise MDISHError(error)
-        return error    # TODO: make this a void function?
-
-    def file_advlock(self, fd, lockop):
-        if lockop == _MDISH_LOCKOP_LOCK:
-            return self._lock(fd)
-        elif lockop == _MDISH_LOCKOP_UNLOCK:
-            return self._unlock(fd)
-        else:
-            raise ValueError('lockop must be 1 or 2')
-
-    def _lock(self, fd):
-        body = struct.pack('>II', fd, _MDISH_LOCKOP_LOCK)
-        header = self._marshal_hdr(_MDISH_OP_FILE_ADVLOCK, len(body))
-        req = header + body
-        error, respbody = self._request(req)
-        if error != 0:
-            assert respbody == ''
-            raise MDISHError(error)
-        if self.shm and respbody:
-            self.shm.seek(0)
-            self.shm.write(respbody)
-        return error    # TODO: make this a void function?
-
-    def _unlock(self, fd):
-        if self.shm:
-            mem = self.shm.getvalue()
-            fmt = '>II%ds' % self.shm.size
-            body = struct.pack(fmt, fd, _MDISH_LOCKOP_UNLOCK, mem)
-        else:
-            body = struct.pack(fmt, fd, _MDISH_LOCKOP_UNLOCK)
-        header = self._marshal_hdr(_MDISH_OP_FILE_ADVLOCK, len(body))
-        req = header + body
-        error, respbody = self._request(req)
-        assert respbody == ''
-        if error != 0:
-            raise MDISHError(error)
-        return error    # TODO: make this a void function?
-
-    def mmap(self, fd, size):
-        body = struct.pack('>II', fd, size)
-        header = self._marshal_hdr(_MDISH_OP_MMAP, len(body))
-        req = header + body
-        error, respbody = self._request(req)
-        if error != 0:
-            raise MDISHError(error)
-        assert len(respbody) == 4
-        self.shm = FixedBuffer(size)
-        sd = struct.unpack('>I', respbody)[0]
-        return sd
-
-    # TODO: POSTPONE
-    def munmap(self, fd, offset, count):
-        body = struct.pack('>III', fd, offset, count)
-        header = self._marshal_hdr(_MDISH_OP_FILE_CLOSE, len(body))
-        req = header + body
-        error, respbody = self._request(req)
-        if error != 0:
-            assert respbody == ''
-            raise MDISHError(error)
-        return respbody
+            raise SMDISHError(error)
+        return error
 
     def fork(self):
-        req = self._marshal_hdr(_MDISH_OP_FORK, 0)
+        req = self._marshal_hdr(_SMDISH_OP_FORK, 0)
         error, respbody = self._request(req)
         if error != 0:
             assert respbody == ''
-            raise MDISHError(error)
+            raise SMDISHError(error)
         assert len(respbody) == 8
         ident = struct.unpack('>Q', respbody)[0]
         return ident
@@ -234,7 +154,7 @@ class MDISHClient:
     def child_attach(self, ident):
         body = struct.pack('>Q', ident)
         bodylen = len(body)
-        header = self._marshal_hdr(_MDISH_OP_CHILD_ATTACH, bodylen)
+        header = self._marshal_hdr(_SMDISH_OP_CHILD_ATTACH, bodylen)
         req = header + body
         error, respbody = self._request(req)
         assert respbody == ''
@@ -245,13 +165,78 @@ class MDISHClient:
         self.shm = FixedBuffer(100)
         return error
 
-    def new_fdtable(self):
-        req = self._marshal_hdr(_MDISH_OP_NEW_FDTABLE, 0)
+    def file_open(self, name):
+        body = self._marshal_str(name)
+        header = self._marshal_hdr(_SMDISH_OP_OPEN, len(body))
+        req = header + body
+        error, respbody = self._request(req)
+        if error != 0:
+            assert respbody == ''
+            raise SMDISHError(error, name)
+        assert len(respbody) == 4
+        fd = struct.unpack('>I', respbody)[0]
+        return fd
+
+    def file_close(self, fd):
+        body = struct.pack('>I', fd)
+        header = self._marshal_hdr(_SMDISH_OP_CLOSE, len(body))
+        req = header + body
         error, respbody = self._request(req)
         assert respbody == ''
         if error != 0:
-            raise MDISHError(error)
-        return error
+            raise SMDISHError(error)
+
+    def lock(self, fd):
+        body = struct.pack('>I', fd)
+        header = self._marshal_hdr(_SMDISH_OP_LOCK, len(body))
+        req = header + body
+        error, respbody = self._request(req)
+        if error != 0:
+            assert respbody == ''
+            raise SMDISHError(error)
+        if self.shm:
+            if respbody == '':
+                assert False, 'bug'
+            else:
+                data_size = struct.unpack('>I', respbody[:4])[0]
+                data = respbody[4:]
+                print binascii.hexlify(data)
+                self.shm.seek(0)
+                self.shm.write(data)
+                self.shm.seek(0)
+
+    def unlock(self, fd):
+        if self.shm:
+            mem = self.shm.getvalue()
+            print binascii.hexlify(mem)
+            fmt = '>II%ds' % self.shm.size
+            body = struct.pack(fmt, fd, self.shm.size, mem)
+        else:
+            body = struct.pack('>I', fd)
+        header = self._marshal_hdr(_SMDISH_OP_UNLOCK, len(body))
+        req = header + body
+        error, respbody = self._request(req)
+        assert respbody == ''
+        if error != 0:
+            raise SMDISHError(error)
+
+    def mmap(self, fd, size):
+        body = struct.pack('>II', fd, size)
+        header = self._marshal_hdr(_SMDISH_OP_MMAP, len(body))
+        req = header + body
+        error, respbody = self._request(req)
+        if error != 0:
+            raise SMDISHError(error)
+        self.shm = FixedBuffer(size)
+
+    def munmap(self, fd):
+        body = struct.pack('>I', fd)
+        header = self._marshal_hdr(_SMDISH_OP_MUNMAP, len(body))
+        req = header + body
+        error, respbody = self._request(req)
+        assert respbody == ''
+        if error != 0:
+            raise SMDISHError(error)
 
     ########################################## 
     # local (i.e., not RPCs)
@@ -279,7 +264,6 @@ class MDISHClient:
                     ssl_version=ssl.PROTOCOL_TLSv1_2,
                     do_handshake_on_connect=False)
             self.sock.do_handshake()
-
 
     def disconnect(self):
         self.sock.close()

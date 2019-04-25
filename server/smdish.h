@@ -7,15 +7,15 @@
 
 RHO_DECLS_BEGIN
 
-#define SMDISH_OP_OPEN           0
-#define SMDISH_OP_CLOSE          1
-#define SMDISH_OP_LOCK           2
-#define SMDISH_OP_UNLOCK         3
-#define SMDISH_OP_MMAP           4
-#define SMDISH_OP_MUNMAP         5
-#define SMDISH_OP_NEW_FDTABLE    6
-#define SMDISH_OP_FORK           7
-#define SMDISH_OP_CHILD_ATTACH   8
+#define SMDISH_OP_NEW_FDTABLE    0
+#define SMDISH_OP_FORK           1
+#define SMDISH_OP_CHILD_ATTACH   2
+#define SMDISH_OP_OPEN           3
+#define SMDISH_OP_CLOSE          4
+#define SMDISH_OP_LOCK           5
+#define SMDISH_OP_UNLOCK         6
+#define SMDISH_OP_MMAP           7
+#define SMDISH_OP_MUNMAP         8
 
 #define SMDISH_MAX_NAME_SIZE     256
 
