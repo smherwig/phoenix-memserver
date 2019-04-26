@@ -1,2 +1,7 @@
-mdishbench: mdishbench.c
-	$(CC) -o $@ -I /home/anonymous/include $^ /home/anonymous/lib/librho.a
+smbench: smbench.c
+	$(CC) -o $@ -I $(HOME)/include $^ $(HOME)/lib/librho.a
+
+clean:
+	rm -f smbench
+
+.PHONY: clean
