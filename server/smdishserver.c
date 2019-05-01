@@ -412,9 +412,11 @@ smdish_memfile_add_map(struct smdish_client *client, uint32_t fd,
         goto done;
     }
 
-    mf->f_size = size;
-    mf->f_addr = rhoL_zalloc(size);
-    mf->f_map_refcnt++;
+    if (mf->f_addr == NULL) {
+        mf->f_size = size;
+        mf->f_addr = rhoL_zalloc(size);
+        mf->f_map_refcnt++;
+    }
 
     *mapfd = smdish_desctable_setopenmemfile(maptab, mf);
 
@@ -427,12 +429,12 @@ static int
 smdish_memfile_remove_map(struct smdish_client *client, uint32_t mapfd)
 {
     int error = 0;
-    struct smdish_desctable *fdtab = client->cli_fdtab;
+    struct smdish_desctable *maptab = client->cli_maptab;
     struct smdish_memfile *mf = NULL;
 
-    RHO_TRACE_ENTER();
+    RHO_TRACE_ENTER("mapfd=%"PRIu32, mapfd);
 
-    mf = smdish_desctable_getmemfile(fdtab, mapfd);
+    mf = smdish_desctable_getmemfile(maptab, mapfd);
     if (mf == NULL) {
         error = EBADF;
         goto done;
@@ -453,7 +455,7 @@ smdish_memfile_remove_map(struct smdish_client *client, uint32_t mapfd)
     }
 
 done:
-    RHO_TRACE_EXIT();
+    RHO_TRACE_EXIT("error=%d", error);
     return (error);
 }
 
@@ -966,15 +968,15 @@ static void
 smdish_client_maptable_destroy(struct smdish_client *client)
 {
     struct smdish_desctable *maptab = client->cli_maptab;
-    size_t fd = 0;
+    size_t mapfd = 0;
     int bitval = 0;
 
     RHO_TRACE_ENTER();
 
-    RHO_BITMAP_FOREACH(fd, bitval, maptab->dt_map) {
+    RHO_BITMAP_FOREACH(mapfd, bitval, maptab->dt_map) {
         if (bitval == 0)
             continue;
-        smdish_memfile_remove_map(client, fd);
+        smdish_memfile_remove_map(client, mapfd);
     }
 
     rhoL_free(maptab->dt_openmemfiles);
@@ -1098,6 +1100,9 @@ smdish_client_splice(struct smdish_client *a, struct smdish_client *b)
 
     a->cli_fdtab = b->cli_fdtab;
     b->cli_fdtab = NULL;
+
+    a->cli_maptab = b->cli_maptab;
+    b->cli_maptab = NULL;
 
     RHO_LIST_REMOVE(b, cli_next_client);
     smdish_client_destroy(b);
