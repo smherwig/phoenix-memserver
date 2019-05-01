@@ -22,7 +22,7 @@ lockfd(int fd)
     fl.l_whence = SEEK_SET;
 
     if (fcntl(fd, F_SETLKW, &fl) == -1)
-        rho_die("lockfd failed");
+        rho_errno_die(errno, "lockfd failed");
 }
 
 static void
@@ -35,7 +35,7 @@ unlockfd(int fd)
     fl.l_whence = SEEK_SET;
 
     if (fcntl(fd, F_SETLK, &fl) == -1)
-        rho_die("unlockfd failed");
+        rho_errno_die(errno, "unlockfd failed");
 }
 
 int
