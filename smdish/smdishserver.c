@@ -33,9 +33,9 @@ struct smdish_memfile {
     char        f_name[SMDISH_MAX_NAME_SIZE];
     void        *f_addr;
     size_t      f_size;
+    bool        f_modified;         /* set to true on first unlock */
+    int         f_client_refcnt;    /* #clients that are using this file */
     uint64_t    f_lock_owner_id;
-    int         f_fd_refcnt;    /* #opens - #closes */
-    int         f_map_refcnt;   /* #mmaps - #munmaps */
     RHO_RB_ENTRY(smdish_memfile) f_memfile;
 };
 
@@ -47,15 +47,10 @@ struct smdish_desctable {
     struct smdish_memfile **dt_openmemfiles;
 };
 
-/*
- * fdtab keeps track of opens() 
- * maptab keeps track of mmaps()
- */
 struct smdish_client {
     RHO_LIST_ENTRY(smdish_client) cli_next_client;
     struct rpc_agent        *cli_agent;
     struct smdish_desctable *cli_fdtab;
-    struct smdish_desctable *cli_maptab;
     uint64_t                cli_id;
 };
 
@@ -89,10 +84,7 @@ static int smdish_memfile_unlock(struct smdish_client *client, uint32_t fd,
         struct smdish_memfile **mf_out);
 
 static int smdish_memfile_add_map(struct smdish_client *client, uint32_t fd,
-        uint32_t size, uint32_t *mapfd);
-
-static int smdish_memfile_remove_map(struct smdish_client *client,
-        uint32_t mapfd);
+        uint32_t size);
 
 /* rpc handlers */
 static void smdish_new_fdtable_proxy(struct smdish_client *client);
@@ -103,7 +95,6 @@ static void smdish_close_proxy(struct smdish_client *client);
 static void smdish_lock_proxy(struct smdish_client *client);
 static void smdish_unlock_proxy(struct smdish_client *client);
 static void smdish_mmap_proxy(struct smdish_client *client);
-static void smdish_munmap_proxy(struct smdish_client *client);
 
 /* desctable */
 static struct smdish_desctable * smdish_desctable_create(void);
@@ -117,17 +108,11 @@ static struct smdish_memfile * smdish_desctable_getmemfile(
 
 /* 
  * desctable: specific functions locks files (fdtable)
- * and segment maps (maptable)
  */
 static struct smdish_desctable * smdish_fdtable_copy(
         const struct smdish_desctable *fdtab);
 
-static struct smdish_desctable * smdish_maptable_copy(
-        const struct smdish_desctable *maptab);
-
 static void smdish_client_fdtable_destroy(struct smdish_client *client);
-static void smdish_client_maptable_destroy(struct smdish_client *client);
-
 
 /* client */
 static struct smdish_client * smdish_client_find(uint64_t id);
@@ -185,7 +170,6 @@ static smdish_opcall smdish_opcalls[] = {
     [SMDISH_OP_OPEN]    = smdish_open_proxy,
     [SMDISH_OP_CLOSE]   = smdish_close_proxy,
     [SMDISH_OP_MMAP]    = smdish_mmap_proxy,
-    [SMDISH_OP_MUNMAP]  = smdish_munmap_proxy,
     [SMDISH_OP_LOCK]    = smdish_lock_proxy,
     [SMDISH_OP_UNLOCK]  = smdish_unlock_proxy,
 };
@@ -242,7 +226,7 @@ smdish_memfile_create(const char *name)
     n = rho_strlcpy(mf->f_name, name, sizeof(mf->f_name));
     RHO_ASSERT(n < sizeof(mf->f_name));
 
-    mf->f_fd_refcnt = 1;
+    mf->f_client_refcnt = 1;
     mf->f_lock_owner_id = SMDISH_NO_OWNER;
 
     RHO_TRACE_EXIT();
@@ -279,7 +263,7 @@ smdish_memfile_open_or_create(struct smdish_client *client, const char *name,
         RHO_RB_INSERT(smdish_memfile_tree, &smdish_memfile_tree_root, mf);
     } else {
         rho_debug("opening existing file \"%s\"", name);
-        mf->f_fd_refcnt++;
+        mf->f_client_refcnt++;
     }
 
     *fd = smdish_desctable_setopenmemfile(fdtab, mf);
@@ -306,10 +290,9 @@ smdish_memfile_close(struct smdish_client *client, uint32_t fd)
     if (mf->f_lock_owner_id == client->cli_id)
         mf->f_lock_owner_id = SMDISH_NO_OWNER;
 
-    mf->f_fd_refcnt--;
-    rho_debug("mf->f_fd_refcnt=%d, mf->f_map_refcnt=%d",
-            mf->f_fd_refcnt, mf->f_map_refcnt);
-    if (mf->f_fd_refcnt == 0 && mf->f_map_refcnt == 0) {
+    mf->f_client_refcnt--;
+    rho_debug("mf->f_client_refcnt=%d", mf->f_client_refcnt);
+    if (mf->f_client_refcnt == 0) {
         RHO_RB_REMOVE(smdish_memfile_tree, &smdish_memfile_tree_root, mf);
         smdish_memfile_destroy(mf);
     }
@@ -397,11 +380,10 @@ done:
 
 static int
 smdish_memfile_add_map(struct smdish_client *client, uint32_t fd,
-        uint32_t size, uint32_t *mapfd)
+        uint32_t size)
 {
     int error = 0;
     struct smdish_desctable *fdtab = client->cli_fdtab;
-    struct smdish_desctable *maptab = client->cli_maptab;
     struct smdish_memfile *mf = NULL;
 
     RHO_TRACE_ENTER();
@@ -412,50 +394,14 @@ smdish_memfile_add_map(struct smdish_client *client, uint32_t fd,
         goto done;
     }
 
+    /* XXX: what should we do if f_addr is not NULL? */
     if (mf->f_addr == NULL) {
         mf->f_size = size;
         mf->f_addr = rhoL_zalloc(size);
-        mf->f_map_refcnt++;
     }
-
-    *mapfd = smdish_desctable_setopenmemfile(maptab, mf);
 
 done:
     RHO_TRACE_EXIT();
-    return (error);
-}
-
-static int
-smdish_memfile_remove_map(struct smdish_client *client, uint32_t mapfd)
-{
-    int error = 0;
-    struct smdish_desctable *maptab = client->cli_maptab;
-    struct smdish_memfile *mf = NULL;
-
-    RHO_TRACE_ENTER("mapfd=%"PRIu32, mapfd);
-
-    mf = smdish_desctable_getmemfile(maptab, mapfd);
-    if (mf == NULL) {
-        error = EBADF;
-        goto done;
-    }
-
-    if (mf->f_addr == NULL) {
-        error = EINVAL;
-        goto done;
-    }
-
-    mf->f_map_refcnt--;
-
-    rho_debug("mf->f_fd_refcnt=%d, mf->f_map_refcnt=%d",
-            mf->f_fd_refcnt, mf->f_map_refcnt);
-    if (mf->f_fd_refcnt == 0 && mf->f_map_refcnt == 0) {
-        RHO_RB_REMOVE(smdish_memfile_tree, &smdish_memfile_tree_root, mf);
-        smdish_memfile_destroy(mf);
-    }
-
-done:
-    RHO_TRACE_EXIT("error=%d", error);
     return (error);
 }
 
@@ -473,15 +419,7 @@ smdish_new_fdtable_proxy(struct smdish_client *client)
     if (client->cli_fdtab != NULL)
         smdish_client_fdtable_destroy(client);
 
-    if (client->cli_fdtab != NULL)
-        smdish_client_maptable_destroy(client);
-
-    /* 
-     * we implement the logical fdtable as two tables: one that
-     * tracks open fds and one that tracks active mappings
-     */
     client->cli_fdtab = smdish_desctable_create();
-    client->cli_maptab = smdish_desctable_create();
 
     rpc_agent_new_msg(agent, 0);
 
@@ -647,8 +585,12 @@ smdish_lock_proxy(struct smdish_client *client)
 done:
     rpc_agent_new_msg(agent, error);
     if (!error) {
-        if (mf->f_addr != NULL) {
-            /* lock is associated with shared memory */
+        if (mf->f_addr != NULL && mf->f_modified) {
+            /* 
+             * lock is associated with shared memory and
+             * the server's replica has been updated by a prior
+             * unlock.
+             */
             rho_buf_writeu32be(buf, mf->f_size);
             rho_buf_write(buf, mf->f_addr, mf->f_size);
             rpc_agent_autoset_bodylen(agent);
@@ -676,6 +618,7 @@ smdish_unlock_proxy(struct smdish_client *client)
 
     error = rho_buf_readu32be(buf, &fd);
     if (error == -1) {
+            rho_warn("rho_buf_read failed");
         error = EPROTO;
         goto done;
     }
@@ -685,23 +628,35 @@ smdish_unlock_proxy(struct smdish_client *client)
         goto done;
 
     if (mf->f_addr != NULL) {
+        rho_debug("fd has associated memory");
         /* fd has associated shared memory */
         error = rho_buf_readu32be(buf, &size);
         if (error == -1) {
+            rho_warn("rho_buf_read failed");
             error = EPROTO;
             goto done;
         }
 
-        rho_debug("size=%"PRIu32", f_size=%zu", size, mf->f_size);
+        if (size != mf->f_size) {
+            error = EINVAL;
+            goto done;
+        }
 
-        /* 
-         * FIXME: check that the read will succeed beforehand; otherwise,
-         * mf->addr is left in a corrrupted state on failure
-         */
+        if (rho_buf_left(buf) != size) {
+            error = EPROTO;
+            goto done;
+        }
+
+        rho_hexdump(mf->f_addr, 32, "memory before unlock");
+
         if (rho_buf_read(buf, mf->f_addr, size) != size) {
+            rho_warn("rho_buf_read failed");
             error = EPROTO;
             goto done;
         }
+
+        mf->f_modified = true;
+        rho_hexdump(mf->f_addr, 32, "memory after unlock");
     }
 
 done:
@@ -722,7 +677,6 @@ smdish_mmap_proxy(struct smdish_client *client)
     struct rho_buf *buf = agent->ra_bodybuf;
     uint32_t fd = 0;
     uint32_t size = 0;
-    uint32_t mapfd = 0;
 
     RHO_TRACE_ENTER();
 
@@ -738,46 +692,14 @@ smdish_mmap_proxy(struct smdish_client *client)
         goto done;
     }
 
-    error = smdish_memfile_add_map(client, fd, size, &mapfd);
+    error = smdish_memfile_add_map(client, fd, size);
 
 done:
     rpc_agent_new_msg(agent, error);
-    if (error != 0) {
-        rho_log_errno_debug(smdish_log, error, 
+    rho_log_errno_debug(smdish_log, error, 
                 "id=0x%"PRIx64" mmap(%"PRIu32", %"PRIu32")",
                 client->cli_id, fd, size);
-    } else {
-        rho_log_errno_debug(smdish_log, error, 
-                "id=0x%"PRIx64" mmap(%"PRIu32", %"PRIu32") -> %"PRIu32,
-                client->cli_id, fd, size, mapfd);
-        rpc_agent_set_bodylen(agent, 4);
-        rho_buf_writeu32be(buf, mapfd);
-    }
 
-    RHO_TRACE_EXIT();
-    return;
-}
-
-static void
-smdish_munmap_proxy(struct smdish_client *client)
-{
-    int error = 0;
-    struct rpc_agent *agent = client->cli_agent;
-    struct rho_buf *buf = agent->ra_bodybuf;
-    uint32_t mapfd = 0;
-
-    RHO_TRACE_ENTER();
-
-    error = rho_buf_readu32be(buf, &mapfd);
-    if (error == -1) {
-        error = EPROTO;
-        goto done;
-    }
-
-    error = smdish_memfile_remove_map(client, mapfd);
-
-done:
-    rpc_agent_new_msg(agent, error);
     RHO_TRACE_EXIT();
     return;
 }
@@ -901,39 +823,7 @@ smdish_fdtable_copy(const struct smdish_desctable *fdtab)
         if (bitval == 0)
             continue;
         mf = fdtab->dt_openmemfiles[fd];
-        mf->f_fd_refcnt++;
-        newp->dt_openmemfiles[fd] = mf;
-    }
-
-    RHO_TRACE_EXIT();
-    return (newp);
-}
-
-static struct smdish_desctable *
-smdish_maptable_copy(const struct smdish_desctable *maptab)
-{
-    struct smdish_desctable *newp = NULL;
-    struct smdish_memfile *mf = NULL;
-    size_t fd = 0;
-    int bitval = 0;
-    size_t n = 0;
-
-    RHO_TRACE_ENTER();
-
-    newp = rhoL_zalloc(sizeof(*newp));
-    newp->dt_map = rho_bitmap_copy(maptab->dt_map);
-
-    n = rho_bitmap_size(maptab->dt_map);
-    newp->dt_openmemfiles = rhoL_mallocarray(n, 
-            sizeof(struct smdish_memfile *), 0);
-    
-    RHO_BITMAP_FOREACH(fd, bitval, maptab->dt_map) {
-        if (bitval == 0)
-            continue;
-        mf = maptab->dt_openmemfiles[fd];
-        mf->f_map_refcnt++;
-        if (mf->f_addr != NULL)
-            mf->f_map_refcnt++;
+        mf->f_client_refcnt++;
         newp->dt_openmemfiles[fd] = mf;
     }
 
@@ -959,29 +849,6 @@ smdish_client_fdtable_destroy(struct smdish_client *client)
     rhoL_free(fdtab->dt_openmemfiles);
     rho_bitmap_destroy(fdtab->dt_map);
     rhoL_free(fdtab);
-
-    RHO_TRACE_EXIT();
-    return;
-}
-
-static void
-smdish_client_maptable_destroy(struct smdish_client *client)
-{
-    struct smdish_desctable *maptab = client->cli_maptab;
-    size_t mapfd = 0;
-    int bitval = 0;
-
-    RHO_TRACE_ENTER();
-
-    RHO_BITMAP_FOREACH(mapfd, bitval, maptab->dt_map) {
-        if (bitval == 0)
-            continue;
-        smdish_memfile_remove_map(client, mapfd);
-    }
-
-    rhoL_free(maptab->dt_openmemfiles);
-    rho_bitmap_destroy(maptab->dt_map);
-    rhoL_free(maptab);
 
     RHO_TRACE_EXIT();
     return;
@@ -1080,7 +947,6 @@ smdish_client_fork(struct smdish_client *parent)
 
     client = smdish_client_alloc();
     client->cli_fdtab = smdish_fdtable_copy(parent->cli_fdtab);
-    client->cli_maptab = smdish_maptable_copy(parent->cli_maptab);
 
     RHO_TRACE_EXIT();
     return (client);
@@ -1101,9 +967,6 @@ smdish_client_splice(struct smdish_client *a, struct smdish_client *b)
     a->cli_fdtab = b->cli_fdtab;
     b->cli_fdtab = NULL;
 
-    a->cli_maptab = b->cli_maptab;
-    b->cli_maptab = NULL;
-
     RHO_LIST_REMOVE(b, cli_next_client);
     smdish_client_destroy(b);
 
@@ -1122,8 +985,6 @@ smdish_client_destroy(struct smdish_client *client)
 
     if (client->cli_fdtab != NULL)
         smdish_client_fdtable_destroy(client);
-    if (client->cli_maptab != NULL)
-        smdish_client_maptable_destroy(client);
 
     rhoL_free(client);
 

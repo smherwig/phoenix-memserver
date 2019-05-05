@@ -15,7 +15,6 @@ RHO_DECLS_BEGIN
 #define SMDISH_OP_LOCK           5
 #define SMDISH_OP_UNLOCK         6
 #define SMDISH_OP_MMAP           7
-#define SMDISH_OP_MUNMAP         8
 
 #define SMDISH_MAX_NAME_SIZE     256
 
