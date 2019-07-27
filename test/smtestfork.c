@@ -82,6 +82,7 @@ main(int argc, char *argv[])
     } else if (pid == 0) {
         /* child */
         for (i = 0; i < n; i++) {
+            sleep(1);
             lockfd(fd);
             data[16 + i] = 'C';
             unlockfd(fd);

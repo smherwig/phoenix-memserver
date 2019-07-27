@@ -34,10 +34,13 @@ struct smuf_memfile {
     int32_t     f_counter;
     int         f_client_refcnt;    /* #clients that are using this file */
 
-    bool        f_modified;         /* true if unlock has been called */
-    size_t      f_map_size;         /* size of memory segment */
-    size_t      f_assocdata_size;   
-    uint8_t     f_assocdata[SMUF_MAX_ASSOCDATA_SIZE];
+    uint8_t     f_type;
+
+    size_t      f_map_size;
+    uint8_t     f_iv[SMUF_IV_SIZE];
+    uint8_t     f_key[SMUF_KEY_SIZE];
+    uint8_t     f_tag[SMUF_TAG_SIZE];
+
     RHO_RB_ENTRY(smuf_memfile) f_memfile;
 };
 
@@ -79,8 +82,8 @@ static int smuf_memfile_open_or_create(struct smuf_client *client,
 
 static int smuf_memfile_close(struct smuf_client *client, uint32_t fd);
 
-static int smuf_memfile_add_map(struct smuf_client *client, uint32_t fd,
-        uint32_t size, uint8_t *assocdata, uint32_t assocdata_size);
+static int smuf_memfile_add_map(struct smuf_client *client, uint32_t fd, 
+        uint32_t size);
 
 /* rpc handlers */
 static void smuf_new_fdtable_proxy(struct smuf_client *client);
@@ -316,7 +319,7 @@ smuf_memfile_delete_lockfile(const struct smuf_memfile *mf)
 }
 
 static void
-smuf_memfile_get_memoryfile_path(const struct smuf_memfile *mf,
+smuf_memfile_get_segmentfile_path(const struct smuf_memfile *mf,
         char *path, size_t path_size)
 {
     size_t n = 0;
@@ -331,22 +334,22 @@ smuf_memfile_get_memoryfile_path(const struct smuf_memfile *mf,
         RHO_ASSERT(n < path_size);
     }
 
-    n = rho_strlcat(path, ".mem", path_size);
-    RHO_ASSERT(n < sizeof(path));
+    n = rho_strlcat(path, ".segment", path_size);
+    RHO_ASSERT(n < path_size);
 
     RHO_TRACE_EXIT("path=\"%s\"", path);
 }
 
 /* Returns 0 on success; an errno value on failure */
 static int
-smuf_memfile_create_memoryfile(const struct smuf_memfile *mf)
+smuf_memfile_create_segmentfile(const struct smuf_memfile *mf)
 {
     int error = 0;
     char path[SMUF_MAX_PATH_SIZE] = { 0 };
 
     RHO_TRACE_ENTER();
 
-    smuf_memfile_get_memoryfile_path(mf, path, sizeof(path));
+    smuf_memfile_get_segmentfile_path(mf, path, sizeof(path));
     error = smuf_create_file(path, mf->f_map_size);
 
     RHO_TRACE_EXIT("error=%d", error);
@@ -355,14 +358,14 @@ smuf_memfile_create_memoryfile(const struct smuf_memfile *mf)
 
 /* Returns 0 on success; an errno value on failure */
 static int
-smuf_memfile_delete_memoryfile(const struct smuf_memfile *mf)
+smuf_memfile_delete_segmentfile(const struct smuf_memfile *mf)
 {
     int error = 0;
     char path[SMUF_MAX_NAME_SIZE * 2] = { 0 };
 
     RHO_TRACE_ENTER();
 
-    smuf_memfile_get_memoryfile_path(mf, path, sizeof(path));
+    smuf_memfile_get_segmentfile_path(mf, path, sizeof(path));
     error = smuf_delete_file(path);
 
     RHO_TRACE_EXIT("error=%d", error);
@@ -384,6 +387,7 @@ smuf_memfile_create(const char *name, int *error)
     RHO_ASSERT(n < sizeof(mf->f_name));
 
     mf->f_client_refcnt = 1;
+    mf->f_type = SMUF_TYPE_PURE_LOCK;
 
     err = smuf_memfile_create_lockfile(mf);
     if (err != 0) {
@@ -404,7 +408,7 @@ smuf_memfile_destroy(struct smuf_memfile *mf)
 
     smuf_memfile_delete_lockfile(mf);
     if (mf->f_map_size > 0)
-        smuf_memfile_delete_memoryfile(mf);
+        smuf_memfile_delete_segmentfile(mf);
 
     RHO_TRACE_EXIT();
     return;
@@ -471,14 +475,13 @@ done:
 
 static int
 smuf_memfile_add_map(struct smuf_client *client, uint32_t fd,
-        uint32_t map_size, uint8_t *assocdata, uint32_t assocdata_size)
+        uint32_t map_size)
 {
     int error = 0;
     struct smuf_desctable *fdtab = client->cli_fdtab;
     struct smuf_memfile *mf = NULL;
 
-    RHO_TRACE_ENTER("fd=%"PRIu32", map_size=%"PRIu32", assocdata_size=%"PRIu32,
-            fd, map_size, assocdata_size);
+    RHO_TRACE_ENTER("fd=%"PRIu32", map_size=%"PRIu32, fd, map_size);
 
     mf = smuf_desctable_getmemfile(fdtab, fd);
     if (mf == NULL) {
@@ -489,13 +492,12 @@ smuf_memfile_add_map(struct smuf_client *client, uint32_t fd,
     /* XXX: what should we do if f_map_size > 0? */
     if (mf->f_map_size == 0) {
 
-        error = smuf_memfile_create_memoryfile(mf);
+        mf->f_map_size = map_size;
+        error = smuf_memfile_create_segmentfile(mf);
         if (error != 0)
             goto done;
 
-        mf->f_map_size = map_size;
-        mf->f_assocdata_size = assocdata_size;
-        memcpy(mf->f_assocdata, assocdata, assocdata_size);
+        mf->f_type = SMUF_TYPE_LOCK_WITH_UNINIT_SEGMENT;
     }
 
 done:
@@ -572,6 +574,7 @@ smuf_child_attach_proxy(struct smuf_client *client)
 
     attachee = smuf_client_find(id);
     if (attachee == NULL) {
+        rho_log_warn(smuf_log, "cannot find id 0x%"PRIx64" to attach to", id);
         error = EINVAL;
         goto done;
     }
@@ -684,6 +687,25 @@ done:
     return;
 }
 
+static bool
+smuf_valid_client_type(uint8_t type)
+{
+    return ((type == SMUF_TYPE_PURE_LOCK) || (type == SMUF_TYPE_LOCK_WITH_SEGMENT));
+
+}
+
+static bool
+smuf_memfile_client_type_compatible(const struct smuf_memfile *mf,
+        uint8_t type)
+{
+    return (
+            (mf->f_type == type) || 
+            
+            ((mf->f_type == SMUF_TYPE_LOCK_WITH_UNINIT_SEGMENT) && 
+             (type == SMUF_TYPE_LOCK_WITH_SEGMENT))
+           );
+}
+
 static void
 smuf_lock_proxy(struct smuf_client *client)
 {
@@ -691,6 +713,7 @@ smuf_lock_proxy(struct smuf_client *client)
     struct rpc_agent *agent = client->cli_agent;
     struct rho_buf *buf = agent->ra_bodybuf;
     uint32_t fd = 0;
+    uint8_t type = 0; 
     int32_t expected_counter = 0;
     struct smuf_memfile *mf = NULL;
 
@@ -708,9 +731,25 @@ smuf_lock_proxy(struct smuf_client *client)
         goto done;
     }
 
+    error = rho_buf_readu8(buf, &type);
+    if (error != 0) {
+        error = EPROTO;
+        goto done;
+    }
+
+    if (!smuf_valid_client_type(type)) {
+        error = EBADE;
+        goto done;
+    }
+
     mf = smuf_desctable_getmemfile(client->cli_fdtab, fd);
     if (mf == NULL) {
         error = EBADF;
+        goto done;
+    }
+
+    if (!smuf_memfile_client_type_compatible(mf, type)) {
+        error = EBADE;
         goto done;
     }
 
@@ -724,11 +763,16 @@ smuf_lock_proxy(struct smuf_client *client)
 done:
     rpc_agent_new_msg(agent, error);
     if (!error) {
-        if (mf->f_assocdata_size > 0 && mf->f_modified) {
-            rho_buf_writeu32be(buf, mf->f_assocdata_size);
-            rho_buf_write(buf, mf->f_assocdata, mf->f_assocdata_size);
-            rpc_agent_autoset_bodylen(agent);
+        rho_buf_writeu8(buf, mf->f_type);
+        if (mf->f_type == SMUF_TYPE_LOCK_WITH_SEGMENT) {
+            rho_buf_writeu32be(buf, SMUF_IV_SIZE);
+            rho_buf_write(buf, mf->f_iv, SMUF_IV_SIZE);
+            rho_buf_writeu32be(buf, SMUF_KEY_SIZE);
+            rho_buf_write(buf, mf->f_key, SMUF_KEY_SIZE);
+            rho_buf_writeu32be(buf, SMUF_TAG_SIZE);
+            rho_buf_write(buf, mf->f_tag, SMUF_TAG_SIZE);
         }
+        rpc_agent_autoset_bodylen(agent);
     }
 
     rho_log_errno_debug(smuf_log, error, 
@@ -738,7 +782,6 @@ done:
     return;
 }
 
-/* this needs to be like the tcad_inc_and_set */
 static void
 smuf_unlock_proxy(struct smuf_client *client)
 {
@@ -746,15 +789,30 @@ smuf_unlock_proxy(struct smuf_client *client)
     struct rpc_agent *agent = client->cli_agent;
     struct rho_buf *buf = agent->ra_bodybuf;
     uint32_t fd = 0;
+    uint8_t type = 0;
     struct smuf_memfile *mf = NULL;
-    uint32_t assocdata_size = 0;
+    uint32_t n = 0;
+    uint8_t iv[SMUF_IV_SIZE] = { 0 };
+    uint8_t key[SMUF_KEY_SIZE] = { 0 };
+    uint8_t tag[SMUF_TAG_SIZE] = { 0 };
 
     RHO_TRACE_ENTER();
 
     error = rho_buf_readu32be(buf, &fd);
     if (error == -1) {
-            rho_warn("rho_buf_read failed");
+        rho_warn("rho_buf_read failed");
         error = EPROTO;
+        goto done;
+    }
+
+    error = rho_buf_readu8(buf, &type);
+    if (error == -1) {
+        error = EPROTO;
+        goto done;
+    }
+
+    if (!smuf_valid_client_type(type)) {
+        error = EBADE;
         goto done;
     }
 
@@ -764,35 +822,58 @@ smuf_unlock_proxy(struct smuf_client *client)
         goto done;
     }
 
-    if (mf->f_assocdata_size == 0) {
-        error = 0;
+    if (!smuf_memfile_client_type_compatible(mf, type)) {
+        error = EBADE;
         goto done;
     }
 
-    rho_debug("fd has associated memory");
-    /* fd has associated shared memory; get the associated data */
-    error = rho_buf_readu32be(buf, &assocdata_size);
-    if (error != 0) {
+    if (mf->f_type == SMUF_TYPE_PURE_LOCK) {
+        mf->f_counter += 1;
+        goto done;
+    }
+
+    /* iv */
+    error = rho_buf_readu32be(buf, &n);
+    if ((error != 0) || (n != SMUF_IV_SIZE)) {
         error = EPROTO;
         goto done;
     }
 
-    if (assocdata_size != mf->f_assocdata_size) {
-        error = EINVAL;
-        goto done;
-    }
-
-    if (rho_buf_left(buf) != assocdata_size) {
+    if (rho_buf_read(buf, iv, SMUF_IV_SIZE) != SMUF_IV_SIZE) {
         error = EPROTO;
         goto done;
     }
 
-    if (rho_buf_read(buf, mf->f_assocdata, mf->f_assocdata_size) != assocdata_size) {
+    /* key */
+    error = rho_buf_readu32be(buf, &n);
+    if ((error != 0) || (n != SMUF_KEY_SIZE)) {
         error = EPROTO;
         goto done;
     }
 
-    mf->f_modified = true;
+    if (rho_buf_read(buf, key, SMUF_KEY_SIZE) != SMUF_KEY_SIZE) {
+        error = EPROTO;
+        goto done;
+    }
+
+    /* tag */
+    error = rho_buf_readu32be(buf, &n);
+    if ((error != 0) || (n != SMUF_TAG_SIZE)) {
+        error = EPROTO;
+        goto done;
+    }
+
+    if (rho_buf_read(buf, tag, SMUF_TAG_SIZE) != SMUF_TAG_SIZE) {
+        error = EPROTO;
+        goto done;
+    }
+
+    memcpy(mf->f_iv, iv, SMUF_IV_SIZE);
+    memcpy(mf->f_key, key, SMUF_KEY_SIZE);
+    memcpy(mf->f_tag, tag, SMUF_TAG_SIZE);
+
+    mf->f_type = SMUF_TYPE_LOCK_WITH_SEGMENT;
+    mf->f_counter += 1;
     error = 0;
 
 done:
@@ -812,8 +893,6 @@ smuf_mmap_proxy(struct smuf_client *client)
     struct rho_buf *buf = agent->ra_bodybuf;
     uint32_t fd = 0;
     uint32_t map_size = 0;
-    uint32_t assocdata_size = 0;
-    uint8_t assocdata[SMUF_MAX_ASSOCDATA_SIZE] = { 0 };
 
     RHO_TRACE_ENTER();
 
@@ -829,28 +908,7 @@ smuf_mmap_proxy(struct smuf_client *client)
         goto done;
     }
 
-    error = rho_buf_readu32be(buf, &assocdata_size);
-    if (error == -1) {
-        error = EPROTO;
-        goto done;
-    }
-
-    if (assocdata_size > SMUF_MAX_ASSOCDATA_SIZE) {
-        error = EINVAL;
-        goto done;
-    }
-
-    if (rho_buf_left(buf) != assocdata_size) {
-        error = EPROTO;
-        goto done;
-    }
-
-    if (rho_buf_read(buf, assocdata, assocdata_size) != assocdata_size) {
-        error = EPROTO;
-        goto done;
-    }
-
-    error = smuf_memfile_add_map(client, fd, map_size, assocdata, assocdata_size);
+    error = smuf_memfile_add_map(client, fd, map_size);
 
 done:
     rpc_agent_new_msg(agent, error);
@@ -1459,7 +1517,7 @@ main(int argc, char *argv[])
     rho_ssl_init();
 
     server  = smuf_server_alloc();
-    while ((c = getopt(argc, argv, "adhl:vZ:")) != -1) {
+    while ((c = getopt(argc, argv, "adhl:r:vZ:")) != -1) {
         switch (c) {
         case 'a':
             anonymous = true;
@@ -1475,6 +1533,7 @@ main(int argc, char *argv[])
             break;
         case 'r':
             smuf_root = optarg;
+            break;
         case 'v':
             verbose = true;
             break;

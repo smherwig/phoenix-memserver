@@ -2,8 +2,100 @@ Overview
 ========
 
 
-Protocol
-========
+Use Cases
+=========
+The shared memory implementation need ot handle four-uses:
+
+*Pure lock*
+```
+open    (for lock)
+
+lock
+unlock
+...
+lock
+unlock
+
+close
+```
+
+*mmap, then lock*
+```
+open    (for mmap)
+mmap
+close
+
+open    (for lock)
+lock
+unlock
+...
+lock
+unlock
+close       # close and munmap can be flipped
+munmap
+```
+
+*lock, then map*
+```
+open    (for lock)
+
+open    (for mmap)
+mmap
+close
+
+lock
+unlock
+...
+lock
+unlock
+
+close       # close and munmap can be flipped
+munmap
+
+*lock and mmpa together*
+```
+open (for lock and mmap)
+mmap
+
+lock
+unlock
+...
+lock
+unlock
+
+close       # close and munma can be swiched.
+munmap
+
+
+Properties
+==========
+We call the abstraction of a file representing a lock and (optionally) a share
+dmemory segment a _memfile_.  memfiles are non-persisstent.  They are created
+on the first open; they are destoryed when no process holds an fd to the file
+or has the segment mapped.
+
+We assume that `mmap` and the `open` for the lock occur in the parent, so that
+child processes inherit the memory segment and the lock file fd over fork.  A
+(rare?) case that we should suppos is wher ethe parrent `mmap`s the file and
+the closes the fd before forking, and the child reopens the file.  Here, the
+parent either never actually reads or writes to the semgnet, or the parent
+reopens the file after the fork.
+
+A proces can have many fds for the same memffile.  If any one fo the fds is
+`mmap`'d, all fds act as pointing to a memfile with associated memory, rather
+thanjust a pure lock file.
+
+From the perspective of the libOS, memfiles only support `open`, `close`,
+`mmap`, `lock`, and `unlock` (the latter two via `fcntl`).  (memfiles would
+also support `munmap` if the libOs has a unified vma and filesystem design).
+Any flags to open are ignore.d  `mmap` always acts as `MAP_SHARED` and
+`PROT_READ|PROT_WRITE`.
+
+The shared memory filesytem is flat; there are no directories.
+
+
+SMDISH Protocol
+===============
 
 `new_fdtable`
 -------------
@@ -272,8 +364,6 @@ Body:
     u32         data
 ```
 
-
-
 ### Response
 
 The response is:
@@ -294,7 +384,9 @@ On success, `status` is `0`.  On failure, `status` is one of the following:
     `fd` isn't a valid open file descriptor.
 - `EINVAL`
     The client is trying to unlock a file for which it does not possess the
-    lock.
+    lock.  Or, the client's segment replica is not the same size as the
+    server's replica.
+- 
 
 
 `mmap`
@@ -313,50 +405,25 @@ Body:
 
 ### Response
 
-The response is
+On success, the response is
 
 ```
 Header:
-    u32         status     
-    u32         body_size   0 
-```
-
-On success, `status` is `0`; on error, `status` is one of the following
-errno values:
-
-- `EPERM`
-    The client does not have an fdtable.
-- `EPROTO`
-    The RPC request was malformed.
-- `EBADF`
-    `fd` isn't a valid open file descriptor.
-
-
-`munmap`
---------
-
-### Request
-
-```
-Header:
-    u32         op_code     8
+    u32         status      0
     u32         body_size   4
 Body:
-    u32         fd
+    u32         mapfd
 ```
 
-### Response
-
-The response is
+On failure, the reponse is
 
 ```
 Header:
-    u32         status     
-    u32         body_size   0 
+    u32         status      0
+    u32         body_size   4
 ```
 
-On success, `status` is `0`; on error, `status` is one of the following
-errno values:
+and `status` is one of the following errno values:
 
 - `EPERM`
     The client does not have an fdtable.
@@ -364,5 +431,26 @@ errno values:
     The RPC request was malformed.
 - `EBADF`
     `fd` isn't a valid open file descriptor.
-- `EINVAL`
-    The file does not have any memory mapped (the file is a pure lock file).
+
+
+Deploying
+=========
+
+
+
+
+Benchmarking
+============
+```
+    ./make_sgx.py -g ~/ws/phoenix -k private.pem -p \
+        ~/phoenix/memserver/bench/smbench.conf  -t $PWD -v -o smbench
+
+# outside of sgx
+    ./smufserver -Z root.crt proc.crt proc.key -r
+        /home/smherwig/phoenix/memfiles -a /graphene/123456/77ea98e9
+
+# inside of sgx
+    ./smufserver.manifest.sgx -Z /srv/root.crt /srv/proc.crt /srv/proc.key
+        -r /memfiles /etc/ramones
+
+```

@@ -31,11 +31,14 @@ struct smdish_server {
 
 struct smdish_memfile {
     char        f_name[SMDISH_MAX_NAME_SIZE];
-    void        *f_addr;
-    size_t      f_size;
-    bool        f_modified;         /* set to true on first unlock */
     int         f_client_refcnt;    /* #clients that are using this file */
     uint64_t    f_lock_owner_id;
+
+    uint8_t     f_type;
+
+    void        *f_addr;
+    size_t      f_map_size;
+
     RHO_RB_ENTRY(smdish_memfile) f_memfile;
 };
 
@@ -77,14 +80,8 @@ static int smdish_memfile_open_or_create(struct smdish_client *client,
 
 static int smdish_memfile_close(struct smdish_client *client, uint32_t fd);
 
-static int smdish_memfile_lock(struct smdish_client *client, uint32_t fd,
-        struct smdish_memfile **mf_out);
-
-static int smdish_memfile_unlock(struct smdish_client *client, uint32_t fd,
-        struct smdish_memfile **mf_out);
-
 static int smdish_memfile_add_map(struct smdish_client *client, uint32_t fd,
-        uint32_t size);
+        uint32_t map_size);
 
 /* rpc handlers */
 static void smdish_new_fdtable_proxy(struct smdish_client *client);
@@ -228,6 +225,7 @@ smdish_memfile_create(const char *name)
 
     mf->f_client_refcnt = 1;
     mf->f_lock_owner_id = SMDISH_NO_OWNER;
+    mf->f_type = SMIDSH_TYPE_PURE_LOCK;
 
     RHO_TRACE_EXIT();
     return (mf);
@@ -304,89 +302,15 @@ done:
     return (error);
 }
 
-/* 
- * as a convenience, on success, if mf_out is not NULL, return
- * the memfile to the caller.
- */
-static int
-smdish_memfile_lock(struct smdish_client *client, uint32_t fd,
-        struct smdish_memfile **mf_out)
-{
-    int error = 0;
-    struct smdish_desctable *fdtab = client->cli_fdtab;
-    struct smdish_memfile *mf = NULL;
-
-    RHO_TRACE_ENTER();
-
-    mf = smdish_desctable_getmemfile(fdtab, fd);
-    if (mf == NULL) {
-        error = EBADF;
-        goto fail;
-    }
-
-    if (mf->f_lock_owner_id == SMDISH_NO_OWNER) {
-        mf->f_lock_owner_id = client->cli_id;
-        goto succeed;
-    }
-
-    if (mf->f_lock_owner_id == client->cli_id)
-        goto succeed;
-
-    error = EAGAIN;
-    goto fail;
-
-
-succeed:
-    if (mf_out != NULL)
-        *mf_out = mf;
-fail:
-    RHO_TRACE_EXIT();
-    return (error);
-}
-
-/* 
- * as a convenience, on success, if mf_out is not NULL, return
- * the memfile to the caller.
- */
-static int
-smdish_memfile_unlock(struct smdish_client *client, uint32_t fd,
-        struct smdish_memfile **mf_out)
-{
-    int error = 0;
-    struct smdish_desctable *fdtab = client->cli_fdtab;
-    struct smdish_memfile *mf = NULL;
-
-    RHO_TRACE_ENTER();
-
-    mf = smdish_desctable_getmemfile(fdtab, fd);
-    if (mf == NULL) {
-        error = EBADF;
-        goto done;
-    }
-
-    if (mf->f_lock_owner_id != client->cli_id) {
-        error = EINVAL;
-        goto done;
-    } else {
-        mf->f_lock_owner_id = SMDISH_NO_OWNER;
-        if (mf_out != NULL)
-            *mf_out = mf;
-    }
-
-done:
-    RHO_TRACE_EXIT();
-    return (error);
-}
-
 static int
 smdish_memfile_add_map(struct smdish_client *client, uint32_t fd,
-        uint32_t size)
+        uint32_t map_size)
 {
     int error = 0;
     struct smdish_desctable *fdtab = client->cli_fdtab;
     struct smdish_memfile *mf = NULL;
 
-    RHO_TRACE_ENTER();
+    RHO_TRACE_ENTER("fd=%"PRIu32", map_size=%"PRIu32, fd, map_size);
 
     mf = smdish_desctable_getmemfile(fdtab, fd);
     if (mf == NULL) {
@@ -396,8 +320,9 @@ smdish_memfile_add_map(struct smdish_client *client, uint32_t fd,
 
     /* XXX: what should we do if f_addr is not NULL? */
     if (mf->f_addr == NULL) {
-        mf->f_size = size;
-        mf->f_addr = rhoL_zalloc(size);
+        mf->f_map_size = map_size;
+        mf->f_addr = rhoL_zalloc(map_size);
+        mf->f_type = SMDISH_TYPE_LOCK_WITH_UNINIT_SEGMENT;
     }
 
 done:
@@ -474,6 +399,7 @@ smdish_child_attach_proxy(struct smdish_client *client)
 
     attachee = smdish_client_find(id);
     if (attachee == NULL) {
+        rho_log_warn(smdish_log, "cannot find id=0x%"PRIx64" to attach to", id);
         error = EINVAL;
         goto done;
     }
@@ -563,6 +489,25 @@ done:
     return;
 }
 
+static bool
+smdish_valid_client_type(uint8_t type)
+{
+    return ((type == SMDISH_TYPE_PURE_LOCK) || (type == SMDISH_TYPE_LOCK_WITH_SEGMENT));
+
+}
+
+static bool
+smdish_memfile_client_type_compatible(const struct smdish_memfile *mf,
+        uint8_t type)
+{
+    return (
+            (mf->f_type == type) || 
+            
+            ((mf->f_type == SMDISH_TYPE_LOCK_WITH_UNINIT_SEGMENT) && 
+             (type == SMDISH_TYPE_LOCK_WITH_SEGMENT))
+           );
+}
+
 static void
 smdish_lock_proxy(struct smdish_client *client)
 {
@@ -570,6 +515,7 @@ smdish_lock_proxy(struct smdish_client *client)
     struct rpc_agent *agent = client->cli_agent;
     struct rho_buf *buf = agent->ra_bodybuf;
     uint32_t fd = 0;
+    uint8_t type = 0;
     struct smdish_memfile *mf = NULL;
 
     RHO_TRACE_ENTER();
@@ -580,21 +526,47 @@ smdish_lock_proxy(struct smdish_client *client)
         goto done;
     }
 
-    error = smdish_memfile_lock(client, fd, &mf);
+    error = rho_buf_readu8(buf, &type);
+    if (error != 0) {
+        error = EPROTO;
+        goto done;
+    }
+
+    if (!smdish_valid_client_type(type)) {
+        error = EBADE;
+        goto done;
+    }
+
+    mf = smdish_desctable_getmemfile(client->cli_fdtab, fd);
+    if (mf == NULL) {
+        error = EBADF;
+        goto done;
+    }
+
+    if (!smdish_memfile_client_type_compatible(mf, type)) {
+        error = EBADE;
+        goto done;
+    }
+
+    if (mf->f_lock_owner_id == SMDISH_NO_OWNER) {
+        mf->f_lock_owner_id = client->cli_id;
+        goto done;
+    }
+
+    if (mf->f_lock_owner_id == client->cli_id)
+        goto done;
+
+    error = EAGAIN;
 
 done:
     rpc_agent_new_msg(agent, error);
     if (!error) {
-        if (mf->f_addr != NULL && mf->f_modified) {
-            /* 
-             * lock is associated with shared memory and
-             * the server's replica has been updated by a prior
-             * unlock.
-             */
-            rho_buf_writeu32be(buf, mf->f_size);
-            rho_buf_write(buf, mf->f_addr, mf->f_size);
-            rpc_agent_autoset_bodylen(agent);
+        rho_buf_writeu8(buf, mf->f_type);
+        if (mf->f_type == SMDISH_TYPE_LOCK_WITH_SEGMENT) {
+            rho_buf_writeu32be(buf, mf->f_map_size);
+            rho_buf_write(buf, mf->f_addr, mf->f_map_size);
         }
+        rpc_agent_autoset_bodylen(agent);
     }
 
     rho_log_errno_debug(smdish_log, error, 
@@ -611,7 +583,8 @@ smdish_unlock_proxy(struct smdish_client *client)
     struct rpc_agent *agent = client->cli_agent;
     struct rho_buf *buf = agent->ra_bodybuf;
     uint32_t fd = 0;
-    uint32_t size = 0;
+    uint8_t type = 0;
+    uint32_t map_size = 0;
     struct smdish_memfile *mf = NULL;
 
     RHO_TRACE_ENTER();
@@ -623,41 +596,70 @@ smdish_unlock_proxy(struct smdish_client *client)
         goto done;
     }
 
-    error = smdish_memfile_unlock(client, fd, &mf);
-    if (error != 0)
+    error = rho_buf_readu8(buf, &type);
+    if (error == -1) {
+        error = EPROTO;
+        goto done;
+    }
+
+    if (!smdish_valid_client_type(type)) {
+        error = EBADE;
+        goto done;
+    }
+
+    mf = smdish_desctable_getmemfile(client->cli_fdtab, fd);
+    if (mf == NULL) {
+        error = EBADF;
+        goto done;
+    }
+
+    if (!smdish_memfile_client_type_compatible(mf, type)) {
+        error = EBADE;
+        goto done;
+    }
+
+    if (mf->f_lock_owner_id != client->cli_id) {
+        error = EINVAL;
+        goto done;
+    } else {
+        mf->f_lock_owner_id = SMDISH_NO_OWNER;
+    }
+
+    if (mf->f_type == SMDISH_TYPE_PURE_LOCK)
         goto done;
 
-    if (mf->f_addr != NULL) {
-        rho_debug("fd has associated memory");
-        /* fd has associated shared memory */
-        error = rho_buf_readu32be(buf, &size);
-        if (error == -1) {
-            rho_warn("rho_buf_read failed");
-            error = EPROTO;
-            goto done;
-        }
+    rho_debug("fd has associated memory");
+    RHO_ASSERT(mf->f_addr != NULL);
 
-        if (size != mf->f_size) {
-            error = EINVAL;
-            goto done;
-        }
-
-        if (rho_buf_left(buf) != size) {
-            error = EPROTO;
-            goto done;
-        }
-
-        rho_hexdump(mf->f_addr, 32, "memory before unlock");
-
-        if (rho_buf_read(buf, mf->f_addr, size) != size) {
-            rho_warn("rho_buf_read failed");
-            error = EPROTO;
-            goto done;
-        }
-
-        mf->f_modified = true;
-        rho_hexdump(mf->f_addr, 32, "memory after unlock");
+    error = rho_buf_readu32be(buf, &map_size);
+    if (error == -1) {
+        rho_warn("rho_buf_read failed");
+        error = EPROTO;
+        goto done;
     }
+
+    if (map_size != mf->f_map_size) {
+        error = EINVAL;
+        goto done;
+    }
+
+    if (rho_buf_left(buf) != map_size) {
+        error = EPROTO;
+        goto done;
+    }
+
+    //rho_hexdump(mf->f_addr, 32, "memory before unlock");
+
+    if (rho_buf_read(buf, mf->f_addr, map_size) != map_size) {
+        rho_warn("rho_buf_read failed");
+        error = EPROTO;
+        goto done;
+    }
+
+    mf->f_type = SMDISH_TYPE_LOCK_WITH_SEGMENT;
+    error = 0;
+
+    //rho_hexdump(mf->f_addr, 32, "memory after unlock");
 
 done:
     rpc_agent_new_msg(agent, error);

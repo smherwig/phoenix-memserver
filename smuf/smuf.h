@@ -18,11 +18,16 @@ RHO_DECLS_BEGIN
 
 #define SMUF_MAX_NAME_SIZE          128
 #define SMUF_MAX_PATH_SIZE          256
-#define SMUF_MAX_ASSOCDATA_SIZE     128
 
 #define SMUF_LOCKFILE_SIZE          4096
 
-#define SMUF_NO_OWNER ((uint64_t)(-1))
+#define SMUF_IV_SIZE 12
+#define SMUF_KEY_SIZE 32
+#define SMUF_TAG_SIZE 16
+
+#define SMUF_TYPE_PURE_LOCK                 0
+#define SMUF_TYPE_LOCK_WITH_SEGMENT         1
+#define SMUF_TYPE_LOCK_WITH_UNINIT_SEGMENT  2
 
 RHO_DECLS_END
 

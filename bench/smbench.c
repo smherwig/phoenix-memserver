@@ -13,7 +13,7 @@
  * ./mdishbench MEMPATH LOCKPATH MEMSIZE ITERATIONS
  *
  * The program calculates how long (wall clock time) it takes to make
- * ITERATIONS number of locks/unlocks (that is, evaluate n criticcal sections).
+ * ITERATIONS number of locks/unlocks (that is, evaluate n critical sections).
  *
  * MEMSIZE is in bytes.
  *
@@ -85,6 +85,7 @@ main(int argc, char *argv[])
     struct timeval tmp;
     struct timeval end;
     struct timeval elapsed;
+    double secs;
 
     if (argc != 5) {
         fprintf(stderr, "usage: %s MEMPATH LOCKPATH MEMSIZE ITERATIONS\n", argv[0]);
@@ -125,9 +126,11 @@ main(int argc, char *argv[])
 
     /* report times */
     rho_timeval_subtract(&end, &start, &elapsed);
+    secs = rho_timeval_to_sec_double(&elapsed);
 
     printf("critical sections: %d, elapsed: secs:%ld, usec:%ld\n",
             n, (long)elapsed.tv_sec, (long)elapsed.tv_usec);
+    printf("(%.9f seconds per critical section)\n", secs / n);
 
     /* cleanup */
     close(fd);

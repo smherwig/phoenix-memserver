@@ -20,6 +20,11 @@ RHO_DECLS_BEGIN
 
 #define SMDISH_NO_OWNER ((uint64_t)(-1))
 
+#define SMDISH_TYPE_PURE_LOCK                 0
+#define SMDISH_TYPE_LOCK_WITH_SEGMENT         1
+#define SMDISH_TYPE_LOCK_WITH_UNINIT_SEGMENT  2
+
+
 RHO_DECLS_END
 
 
