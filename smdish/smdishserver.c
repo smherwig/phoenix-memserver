@@ -225,7 +225,7 @@ smdish_memfile_create(const char *name)
 
     mf->f_client_refcnt = 1;
     mf->f_lock_owner_id = SMDISH_NO_OWNER;
-    mf->f_type = SMIDSH_TYPE_PURE_LOCK;
+    mf->f_type = SMDISH_TYPE_PURE_LOCK;
 
     RHO_TRACE_EXIT();
     return (mf);
