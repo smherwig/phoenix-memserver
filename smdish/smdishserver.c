@@ -821,7 +821,8 @@ smdish_fdtable_copy(const struct smdish_desctable *fdtab)
     newp->dt_openmemfiles = rhoL_mallocarray(n, 
             sizeof(struct smdish_memfile *), 0);
     
-    RHO_BITMAP_FOREACH(fd, bitval, fdtab->dt_map) {
+    for (fd = 0; fd < n; fd++) {
+        bitval = rho_bitmap_get(fdtab->dt_map, fd);
         if (bitval == 0)
             continue;
         mf = fdtab->dt_openmemfiles[fd];
@@ -842,7 +843,8 @@ smdish_client_fdtable_destroy(struct smdish_client *client)
 
     RHO_TRACE_ENTER();
 
-    RHO_BITMAP_FOREACH(fd, bitval, fdtab->dt_map) {
+    for (fd = 0; fd < rho_bitmap_size(fdtab->dt_map); fd++) {
+        bitval = rho_bitmap_get(fdtab->dt_map, fd);
         if (bitval == 0)
             continue;
         smdish_memfile_close(client, fd);
