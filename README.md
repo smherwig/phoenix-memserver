@@ -1,20 +1,20 @@
 Overview
 ========
-The sm-vericrypt-basic and sm-vericrypt memory servers for the [Phoenix]
+The sm-vericrypt-basic and sm-vericrypt memory servers for the
 [Phoenix](https://github.com/smherwig/phoenix) SGX microkernel.
 
 Note that, internally, `smdish` is `sm-vericrypt-basic`, `smuf` is
 `sm-vericrypt`.  A third shared memory implementation, `sm-crypt`, does not use
-a server, and is referred to in the Phoenix source as `smc'.
+a server, and is referred to in the Phoenix source as `smc`.
 
-In the shared memory filesystesm, files are called *memory files*, and either
-represent a pure, content-less lock, or a lock with an associtaed shared memory
+In the shared memory filesystems, files are called *memory files*, and either
+represent a pure, content-less lock, or a lock with an associated shared memory
 segment.  Memory files are non-persistent: they are created on the first open
 and destroyed when no process holds a descriptor to the file and no process has
 the associated memory segement mapped.
 
-All three share memory implementations store a master copoy of the shared
-memory segemnt at a known location (either a particular server or file).  Upon
+All three share memory implementations store a master copy of the shared
+memory segment at a known location (either a particular server or file).  Upon
 locking a file, the client "downloads" the master copy and updates its internal
 memory maps.  On unlock, the client copies its replica to the master.
 
@@ -30,12 +30,16 @@ enclaved server to monitor the integrity of the ticketlock and IV.
 
 Building
 ========
-The memory servers depend on:
+
+The memory servers depend on
 [librho](https://github.com/smherwig/librho) and
 [librpc](https://github.com/smherwig/phoenix-librpc).
-
 I assume that dependencies are installed under `$HOME`; modify the memservers'
 Makefile if this is not the case.
+
+
+To build the sm-vericrypt-basic (smdish) and sm-vericrypt (smuf) memory
+servers, enter:
 
 ```
 cd ~/src
@@ -45,7 +49,6 @@ make
 cd ../smuf
 make
 ```
-
 
 Packaging
 =========
@@ -57,8 +60,6 @@ smdish
 ```
 cd ~/src/makemanifest
 ./make_sgx.py -g ~/src/phoenix -k enclave-key.pem -p ~/src/memserver/deploy/smdishserver.conf -t $PWD -v -o smdishserver
-cd smdishserver
-mv manifest.sgx smdishserver.manifest.sgx
 ```
 
 
@@ -68,8 +69,6 @@ smuf
 ```
 cd ~/src/makemanifest
 ./make_sgx.py -g ~/src/phoenix -k enclave-key.pem -p ~/src/memserver/deploy/smufserver.conf -t $PWD -v -o smufserver
-cd smufserver
-mv manifest.sgx smufserver.manifest.sgx
 ```
 
 
@@ -88,8 +87,6 @@ make
 
 ```
 ./make_sgx.py -g ~/src/phoenix -k enclave-key.pem -p ~/src/memserver/bench/smbench.conf -t $PWD -v -o smbench
-cd smbench
-mv manifest.conf smbench.manifest.conf
 ```
 
 ```
