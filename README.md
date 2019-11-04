@@ -28,8 +28,8 @@ enclaved server to monitor the integrity of the ticketlock and IV.
 
 
 
-Building
-========
+<a name="building"/> Building
+=============================
 
 The memory servers depend on
 [librho](https://github.com/smherwig/librho) and
@@ -50,8 +50,8 @@ cd ../smuf
 make
 ```
 
-Packaging
-=========
+<a name="packaging"/> Packaging
+===============================
 
 
 smdish
@@ -72,8 +72,8 @@ cd ~/src/makemanifest
 ```
 
 
-Micro-benchmarks
-================
+<a name="micro-benchmarks"/> Micro-benchmarks
+=============================================
 
 The `smbench` benchmarking tool measures the mean time for a process to
 evaluate a critical section (a lock and unlock operation pair) over shared
