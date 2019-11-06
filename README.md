@@ -21,7 +21,7 @@ memory maps.  On unlock, the client copies its replica to the master.
 
 - **sm-vericrypt-basic** uses an enclaved server to keep the canonical memory
 files in an in-enclave red-black tree.
-- **sm-vericrypt** implements a memory file as two untrusted hosts files: a
+- **sm-vericrypt** implements a memory file as two untrusted host files: a
 mandatory lock file, and an optional segment file.  The segment file is
 encrypted with AES-256-GCM, and the smc-vericrypt server maintains an
 in-enclave, shadowed version of the lockfile.
@@ -54,7 +54,7 @@ make
 ```
 
 A limitation of sm-vericrypt and sm-crypt is that they do not remove the
-backing hosts files for the memory segments and locks when Phoenix terminates.
+backing host files for the memory segments and locks when Phoenix terminates.
 The `rest_phoenix_memdirs.sh` assumes that these files are stored under
 `~/var/phoenix/memfiles`, and can be used to clear the directory's contents
 between runs of Phoenix:
