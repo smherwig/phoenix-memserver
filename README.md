@@ -74,7 +74,7 @@ reset_phoenix_memdirs.sh
 ===============================
 
 I assume that [phoenix](https://github.com/smherwig/phoenix#building) is built
-and that [makemanifest](https://github.com/smherwig/phoenix-makemanfiest) has
+and that [makemanifest](https://github.com/smherwig/phoenix-makemanifest) has
 been cloned to `~/src/makemanifest`:
 
 Copy the keying material:
