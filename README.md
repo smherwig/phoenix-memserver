@@ -53,6 +53,23 @@ cd ../smuf
 make
 ```
 
+A limitation of sm-vericrypt and sm-crypt is that they do not remove the
+backing hosts files for the memory segments and locks when Phoenix terminates.
+The `rest_phoenix_memdirs.sh` assumes that these files are stored under
+`~/var/phoenix/memfiles`, and can be used to clear the directory's contents
+between runs of Phoenix:
+
+```
+cp ~/src/memserver/bin/reset_phoenix_memdirs.sh ~/bin/
+```
+
+Assuming that `$HOME/bin` is on the user's path, the script is simply invoked
+as:
+
+```
+reset_phoenix_memdirs.sh
+```
+
 <a name="packaging"/> Packaging
 ===============================
 
