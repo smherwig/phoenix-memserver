@@ -161,7 +161,7 @@ cd ~/src/makemanifest/smdish
 
 ### <a name="microbench-sm-vericrypt-basic-sgx"/> SGX
 
-Ensure that `~/src/memeserver/deploy/smdishserver.conf has the directive:
+Ensure that `~/src/memeserver/deploy/smdishserver.conf` has the directive:
 
 ```
 THREADS 1
@@ -191,7 +191,7 @@ cd ~/src/makemanifest/smdish
 
 ### <a name="microbench-sm-vericrypt-basic-exitless"/> exitless
 
-Ensure that `~/src/memeserver/deploy/smdishserver.conf has the directive:
+Ensure that `~/src/memeserver/deploy/smdishserver.conf` has the directive:
 
 ```
 THREADS 1 exitless
@@ -214,7 +214,7 @@ reset_phoenix_memfiles.sh
 
 ### <a name="microbench-sm-vericrypt-sgx/> SGX
 
-Ensure that `~/src/memeserver/deploy/smufserver.conf has the directive:
+Ensure that `~/src/memeserver/deploy/smufserver.conf` has the directive:
 
 ```
 THREADS 1
@@ -244,7 +244,7 @@ cd ~/src/makemanifest/smdish
 
 ### <a name="microbench-sm-vericrypt-exitless/> exitless
 
-Ensure that `~/src/memeserver/deploy/smufserver.conf has the directive:
+Ensure that `~/src/memeserver/deploy/smufserver.conf` has the directive:
 
 ```
 THREADS 1 exitless
