@@ -55,17 +55,17 @@ make
 
 A limitation of sm-vericrypt and sm-crypt is that they do not remove the
 backing host files for the memory segments and locks when Phoenix terminates.
-The `bin/reset_phoenix_memdirs.sh` can be used to clear these files 
-between runs of Phoenix.  The script assumes these files exist udner ~/var/phoenix/memfiles`.
+The script `bin/reset_phoenix_memdirs.sh` clears these files 
+between runs of Phoenix (assuming these files exist under ~/var/phoenix/memfiles`).
 
-Install `reset_phoenix_memdirs.sh
+Ensure `$HOME/bin` is on the user's `$PATH`, and install
+`reset_phoenix_memdirs.sh`:
 
 ```
 cp ~/src/memserver/bin/reset_phoenix_memdirs.sh ~/bin/
 ```
 
-Assuming that `$HOME/bin` is on the user's path, the script is simply invoked
-as:
+The script is simply invoked as:
 
 ```
 reset_phoenix_memdirs.sh
