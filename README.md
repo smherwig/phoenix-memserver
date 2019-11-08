@@ -151,7 +151,7 @@ cd ~/src/memserver/smdish
 ./smufserver -Z root.crt proc.crt proc.key -a /graphene/123456/77ea98e9
 ```
 
-In a second terminal, run the smbench within an enclave:
+In a second terminal, run smbench within an enclave:
 
 ```
 cd ~/src/makemanifest/smdish
@@ -181,7 +181,7 @@ cd ~/src/makemanifest/smdishserver
 ./smdishserver.manifest.sgx -Z /srv/root.crt /srv/proc.crt /srv/proc.key /etc/ramones
 ```
 
-In a second terminal, run the smbench in an enclave:
+In a second terminal, run smbench in an enclave:
 
 ```
 cd ~/src/makemanifest/smdish
@@ -204,7 +204,7 @@ Otherwise, repeat as with the the (SGX)[#micro-bench-sm-vericrypt-basic-sgx] cas
 sm-vericrypt
 ------------
 
-### <a name="microbench-sm-vericrypt-non-sgx/> non-SGX
+### <a name="microbench-sm-vericrypt-non-sgx"/> non-SGX
 
 ```
 reset_phoenix_memfiles.sh
@@ -212,7 +212,7 @@ reset_phoenix_memfiles.sh
 ```
 
 
-### <a name="microbench-sm-vericrypt-sgx/> SGX
+### <a name="microbench-sm-vericrypt-sgx"/> SGX
 
 Ensure that `~/src/memeserver/deploy/smufserver.conf` has the directive:
 
@@ -234,7 +234,7 @@ reset_phoenix_memfiles.sh
 ./smufserver.manifest.sgx -Z /srv/root.crt /srv/proc.crt /srv/proc.key -r /memfiles0 /etc/ramones
 ```
 
-In a second terminal, run the smbench in an enclave:
+In a second terminal, run smbench in an enclave:
 
 ```
 cd ~/src/makemanifest/smdish
@@ -242,7 +242,7 @@ cd ~/src/makemanifest/smdish
 ```
 
 
-### <a name="microbench-sm-vericrypt-exitless/> exitless
+### <a name="microbench-sm-vericrypt-exitless"/> exitless
 
 Ensure that `~/src/memeserver/deploy/smufserver.conf` has the directive:
 
