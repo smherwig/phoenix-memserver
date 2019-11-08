@@ -126,8 +126,8 @@ make
 ```
 
 
-sm-vericrypt-basic
-------------------
+sm-vericrypt-basic (smdish)
+---------------------------
 
 Edit `~/src/memserver/bench/smbench.conf` and ensure there is is only a single 
 `MOUNT` directive:
@@ -139,29 +139,30 @@ MOUNT pipe:2011863273 /memserver smdish
 Package `smbench` to run in an enclave:
 
 ```
+cd ~/src/makemanifest
 ./make_sgx.py -g ~/src/phoenix -k ~/share/phoenix/enclave-key.pem -p ~/src/memserver/bench/smbench.conf -t $PWD -v -o smbench
 ```
 
 ### <a name="microbench-sm-vericrypt-basic-non-sgx"/> non-SGX
 
-In one terminal, run sm-vericrypt-basic (smdish) outside of an enclave:
+In one terminal, run sm-vericrypt-basic (smdishserver) outside of an enclave:
 
 ```
 cd ~/src/memserver/smdish
-./smufserver -Z root.crt proc.crt proc.key -a /graphene/123456/77ea98e9
+./smdishserver -Z root.crt proc.crt proc.key -a /graphene/123456/77ea98e9
 ```
 
 In a second terminal, run smbench within an enclave:
 
 ```
-cd ~/src/makemanifest/smdish
-./smdish.manifest.sgx  /memserver/foo /memserver/foo 1024 10000
+cd ~/src/makemanifest/smbench
+./smbench.manifest.sgx  /memserver/foo /memserver/foo 1024 10000
 ```
 
 
 ### <a name="microbench-sm-vericrypt-basic-sgx"/> SGX
 
-Ensure that `~/src/memeserver/deploy/smdishserver.conf` has the directive:
+Ensure that `~/src/memserver/deploy/smdishserver.conf` has the directive:
 
 ```
 THREADS 1
@@ -197,18 +198,42 @@ Ensure that `~/src/memeserver/deploy/smdishserver.conf` has the directive:
 THREADS 1 exitless
 ```
 
-Otherwise, repeat as with the the (SGX)[#micro-bench-sm-vericrypt-basic-sgx] case.
+Otherwise, repeat as with the the [SGX](#micro-bench-sm-vericrypt-basic-sgx) case.
 
 
 
-sm-vericrypt
-------------
+sm-vericrypt (smuf)
+-------------------
+
+Edit `~/src/memserver/bench/smbench.conf` and ensure there is only a single
+`MOUNT` directive:
+
+```
+MOUNT pipe:2011863273,file:$HOME/var/phoenix/memfiles /memserver,/memfiles smuf
+```
+
+Package `smbench` to run in an enclave:
+
+```
+cd ~/src/makemanifest
+./make_sgx.py -g ~/src/phoenix -k ~/share/phoenix/enclave-key.pem -p ~/src/memserver/bench/smbench.conf -t $PWD -v -o smbench
+```
+
 
 ### <a name="microbench-sm-vericrypt-non-sgx"/> non-SGX
 
+In one terminal, run sm-vericrypt (smufserver) outside of an enclave:
+
 ```
 reset_phoenix_memfiles.sh
-./smufserver -Z root.crt proc.crt proc.key -r $HOME/var/phoenix/memfiles/0 -a /graphene/123456/77ea98e9
+./smufserver -Z root.crt proc.crt proc.key -r $HOME/var/phoenix/memfiles -a /graphene/123456/77ea98e9
+```
+
+In a second terminal, run smbench within an enclave:
+
+```
+cd ~/src/makemanifest/smbench
+./smbench.manifest.sgx  /memserver/foo /memserver/foo 1024 10000
 ```
 
 
@@ -231,7 +256,7 @@ In one terminal, run sm-vericrypt in an enclave:
 
 ```
 reset_phoenix_memfiles.sh
-./smufserver.manifest.sgx -Z /srv/root.crt /srv/proc.crt /srv/proc.key -r /memfiles0 /etc/ramones
+./smufserver.manifest.sgx -Z /srv/root.crt /srv/proc.crt /srv/proc.key -r /memfiles /etc/ramones
 ```
 
 In a second terminal, run smbench in an enclave:
@@ -250,7 +275,7 @@ Ensure that `~/src/memeserver/deploy/smufserver.conf` has the directive:
 THREADS 1 exitless
 ```
 
-Otherwise, repeat as with the the (SGX)[#micro-bench-sm-vericrypt-sgx] case.
+Otherwise, repeat as with the the [SGX](#micro-bench-sm-vericrypt-sgx) case.
 
 
 sm-crypt
