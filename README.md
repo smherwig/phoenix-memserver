@@ -4,9 +4,8 @@ The sm-vericrypt-basic and sm-vericrypt memory servers for the
 [Phoenix](https://github.com/smherwig/phoenix) SGX microkernel.
 
 Note that, internally, smdish is sm-vericrypt-basic, smuf is sm-vericrypt.  The
-Phoenix source also has a built-in shared memory implementation that does not
-use a server called sm-crypt (within the Phoenix source, it is referred to as
-smc).
+Phoenix source also has a built-in shared memory called sm-crypt that does not
+use a server (within the Phoenix source, it is referred to as smc).
 
 In the shared memory filesystems, files are called *memory files*, and either
 represent a pure, content-less lock, or a lock with an associated shared memory
@@ -24,10 +23,11 @@ files in an in-enclave red-black tree.
 - **sm-vericrypt** implements a memory file as two untrusted host files: a
 mandatory lock file, and an optional segment file.  The segment file is
 encrypted with AES-256-GCM, and the smc-vericrypt server maintains an
-in-enclave, shadowed version of the lockfile.
-- **sm-crypt** assumes the untrusted host does not tamper with data.  As such,
-sm-crypt uses AES-256-CTR instead of AES-256-GCM, and does not need an
-enclaved server to monitor the integrity of the lockfile or IV.
+in-enclave, shadowed copy of the lockfile.
+- **sm-crypt** is similar to sm-verictyp, but assumes the untrusted host does
+not tamper with data.  As such, sm-crypt uses AES-256-CTR instead of
+AES-256-GCM, and does not need an enclaved server to monitor the integrity of
+the lockfile or IV.
 
 
 
@@ -55,9 +55,10 @@ make
 
 A limitation of sm-vericrypt and sm-crypt is that they do not remove the
 backing host files for the memory segments and locks when Phoenix terminates.
-The `rest_phoenix_memdirs.sh` assumes that these files are stored under
-`~/var/phoenix/memfiles`, and can be used to clear the directory's contents
-between runs of Phoenix:
+The `bin/reset_phoenix_memdirs.sh` can be used to clear these files 
+between runs of Phoenix.  The script assumes these files exist udner ~/var/phoenix/memfiles`.
+
+Install `reset_phoenix_memdirs.sh
 
 ```
 cp ~/src/memserver/bin/reset_phoenix_memdirs.sh ~/bin/
