@@ -55,8 +55,8 @@ make
 
 A limitation of sm-vericrypt and sm-crypt is that they do not remove the
 backing host files for the memory segments and locks when Phoenix terminates.
-The script `bin/reset_phoenix_memdirs.sh` clears these files 
-between runs of Phoenix (assuming these files exist under ~/var/phoenix/memfiles`).
+The script `bin/reset_phoenix_memdirs.sh` clears these files between runs of
+Phoenix (assuming these files exist under `~/var/phoenix/memfiles`).
 
 Ensure `$HOME/bin` is on the user's `$PATH`, and install
 `reset_phoenix_memdirs.sh`:
@@ -75,8 +75,9 @@ reset_phoenix_memdirs.sh
 ===============================
 
 I assume that [phoenix](https://github.com/smherwig/phoenix#building) is built
-and that [makemanifest](https://github.com/smherwig/phoenix-makemanifest) has
-been cloned to `~/src/makemanifest`:
+and located at `$HOME/src/phoenix` and that
+[makemanifest](https://github.com/smherwig/phoenix-makemanifest) is cloned to
+`~/src/makemanifest`.
 
 Copy the keying material:
 
@@ -90,10 +91,7 @@ cp ~/share/phoenix/proc.crt ~/src/memserver/smuf
 cp ~/share/phoenix/proc.key ~/src/memserver/smuf 
 ```
 
-smdish
-------
-
-Package the smdishserver:
+To package the smdishserver to run in an enclave, enter:
 
 ```
 cd ~/src/makemanifest
@@ -101,10 +99,7 @@ cd ~/src/makemanifest
 ```
 
 
-smuf
-----
-
-Package the smufserver:
+To package the smufserver to run in an enclave, enter:
 
 ```
 cd ~/src/makemanifest
@@ -117,24 +112,96 @@ cd ~/src/makemanifest
 
 The `smbench` benchmarking tool measures the mean time for a process to
 evaluate a critical section (a lock and unlock operation pair) over shared
-memory.
+memory.  We use `smbench` to evaluate the performance of sm-vericrypt-basic,
+sm-vericypt, and sm-crypt.  `smbench` always runs in an enclave using exitless
+system calls.  For sm-vericrypt-basic and sm-vericrypt, we evaluate the servers
+running outside of SGX (*non-SGX*), within SGX (*SGX*), and within SGX with
+exitless system calls (*exitless*).
 
+Build `smbench`:
 
 ```
 cd  ~/src/memserver/bench
 make
 ```
 
+
+sm-vericrypt-basic
+------------------
+
+Edit `~/src/memserver/bench/smbench.conf` and ensure there is is only a single 
+`MOUNT` directive:
+
+```
+MOUNT pipe:2011863273 /memserver smdish
+```
+
+Package `smbench` to run in an enclave:
+
 ```
 ./make_sgx.py -g ~/src/phoenix -k ~/share/phoenix/enclave-key.pem -p ~/src/memserver/bench/smbench.conf -t $PWD -v -o smbench
 ```
 
+### non-SGX
+
+In one terminal, ruun sm-vericrypt-basic (smdish) outside of an enclave:
+
 ```
-# outside of sgx
+cd ~/src/memserver/smdish
 ./smufserver -Z root.crt proc.crt proc.key -r $HOME/var/phoenix/memfiles/0 -a /graphene/123456/77ea98e9
 ```
 
+In a second terminal, run the smbench within an enclave:
+
 ```
-# inside of sgx
+cd ~/src/makemanifest/smdish
+./smdish.manifest.sgx 
+```
+
+
+### SGX
+
+
+In a second terminal, run the smbench within an enclave:
+
+```
+cd ~/src/makemanifest/smdish
+./smdish.manifest.sgx 
+```
+
+
+### exitless
+
+
+In a second terminal, run the smbench within an enclave:
+
+```
+cd ~/src/makemanifest/smdish
+./smdish.manifest.sgx 
+```
+
+
+sm-vericrypt
+------------
+
+### non-SGX
+
+```
+reset_phoenix_memfiles.sh
+./smufserver -Z root.crt proc.crt proc.key -r $HOME/var/phoenix/memfiles/0 -a /graphene/123456/77ea98e9
+```
+
+### SGX
+
+```
+reset_phoenix_memfiles.sh
 ./smufserver.manifest.sgx -Z /srv/root.crt /srv/proc.crt /srv/proc.key -r /memfiles0 /etc/ramones
 ```
+
+### exitless
+
+
+
+sm-crypt
+--------
+
