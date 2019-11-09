@@ -57,20 +57,20 @@ make
 A limitation of sm-vericrypt and sm-crypt is that if the application terminates
 before the closing the memory files, Phoenix will not remove the associated
 backing host files for the memory segments and locks.  The script
-`bin/reset_phoenix_memdirs.sh` may be invoked to clear these files between runs
+`bin/reset_phoenix_memfiles.sh` may be invoked to clear these files between runs
 of Phoenix (assuming these files exist under `~/var/phoenix/memfiles`).
 
 Ensure `$HOME/bin` is on the user's `$PATH`, and install
-`reset_phoenix_memdirs.sh`:
+`reset_phoenix_memfiles.sh`:
 
 ```
-cp ~/src/memserver/bin/reset_phoenix_memdirs.sh ~/bin/
+cp ~/src/memserver/bin/reset_phoenix_memfiles.sh ~/bin/
 ```
 
 The script is simply invoked as:
 
 ```
-reset_phoenix_memdirs.sh
+reset_phoenix_memfiles.sh
 ```
 
 <a name="packaging"/> Packaging
@@ -190,8 +190,8 @@ cd ~/src/makemanifest/smdishserver
 In a second terminal, run smbench in an enclave:
 
 ```
-cd ~/src/makemanifest/smdish
-./smdish.manifest.sgx  /memserver0/foo /memserver0/foo 1024 10000
+cd ~/src/makemanifest/smbench
+./smbenchmanifest.sgx  /memserver0/foo /memserver0/foo 1024 10000
 ```
 
 
@@ -251,7 +251,7 @@ Ensure that `~/src/memeserver/deploy/smufserver.conf` has the directive:
 THREADS 1
 ```
 
-Package sm-vericrypt to run in an enclave:
+Package smufserver to run in an enclave:
 
 ```
 cd ~/src/makemanifest
