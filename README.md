@@ -3,9 +3,10 @@ Overview
 The sm-vericrypt-basic and sm-vericrypt memory servers for the
 [Phoenix](https://github.com/smherwig/phoenix) SGX microkernel.
 
-Note that, internally, smdish is sm-vericrypt-basic, smuf is sm-vericrypt.  The
-Phoenix source also has a built-in shared memory called sm-crypt that does not
-use a server (within the Phoenix source, it is referred to as smc).
+Note that, internally, smdish is sm-vericrypt-basic, and smuf is sm-vericrypt.
+The Phoenix source also has a built-in shared memory implementation called
+sm-crypt that does not use a server (within the Phoenix source, it is referred
+to as smc).
 
 In the shared memory filesystems, files are called *memory files*, and either
 represent a pure, content-less lock, or a lock with an associated shared memory
@@ -13,10 +14,10 @@ segment.  Memory files are non-persistent: they are created on the first open
 and destroyed when no process holds a descriptor to the file and no process has
 the associated memory segement mapped.
 
-All three share memory implementations store a master copy of the shared
+All three shared memory implementations store a master copy of the shared
 memory segment at a known location (either a particular server or file).  Upon
 locking a file, the client "downloads" the master copy and updates its internal
-memory maps.  On unlock, the client copies its replica to the master.
+memory maps.  On unlock, the client copies its copy to the master.
 
 - **sm-vericrypt-basic** uses an enclaved server to keep the canonical memory
 files in an in-enclave red-black tree.
@@ -24,7 +25,7 @@ files in an in-enclave red-black tree.
 mandatory lock file, and an optional segment file.  The segment file is
 encrypted with AES-256-GCM, and the smc-vericrypt server maintains an
 in-enclave, shadowed copy of the lockfile.
-- **sm-crypt** is similar to sm-verictyp, but assumes the untrusted host does
+- **sm-crypt** is similar to sm-vericrypt, but assumes the untrusted host does
 not tamper with data.  As such, sm-crypt uses AES-256-CTR instead of
 AES-256-GCM, and does not need an enclaved server to monitor the integrity of
 the lockfile or IV.
@@ -53,10 +54,11 @@ cd ../smuf
 make
 ```
 
-A limitation of sm-vericrypt and sm-crypt is that they do not remove the
-backing host files for the memory segments and locks when Phoenix terminates.
-The script `bin/reset_phoenix_memdirs.sh` clears these files between runs of
-Phoenix (assuming these files exist under `~/var/phoenix/memfiles`).
+A limitation of sm-vericrypt and sm-crypt is that if the application terminates
+before the closing the memory files, Phoenix will not remove the associated
+backing host files for the memory segments and locks.  The script
+`bin/reset_phoenix_memdirs.sh` may be invoked to clear these files between runs
+of Phoenix (assuming these files exist under `~/var/phoenix/memfiles`).
 
 Ensure `$HOME/bin` is on the user's `$PATH`, and install
 `reset_phoenix_memdirs.sh`:
@@ -143,9 +145,9 @@ cd ~/src/makemanifest
 ./make_sgx.py -g ~/src/phoenix -k ~/share/phoenix/enclave-key.pem -p ~/src/memserver/bench/smbench.conf -t $PWD -v -o smbench
 ```
 
-### <a name="microbench-sm-vericrypt-basic-non-sgx"/> non-SGX
+### <a name="micro-bench-sm-vericrypt-basic-non-sgx"/> non-SGX
 
-In one terminal, run sm-vericrypt-basic (smdishserver) outside of an enclave:
+In one terminal, run smdishserver outside of an enclave:
 
 ```
 cd ~/src/memserver/smdish
@@ -159,8 +161,11 @@ cd ~/src/makemanifest/smbench
 ./smbench.manifest.sgx  /memserver/foo /memserver/foo 1024 10000
 ```
 
+This command will execute 10,000 critical sections that lock and unlock a
+1024-byte shared memory segment.
 
-### <a name="microbench-sm-vericrypt-basic-sgx"/> SGX
+
+### <a name="micro-bench-sm-vericrypt-basic-sgx"/> SGX
 
 Ensure that `~/src/memserver/deploy/smdishserver.conf` has the directive:
 
@@ -168,14 +173,14 @@ Ensure that `~/src/memserver/deploy/smdishserver.conf` has the directive:
 THREADS 1
 ```
 
-Package sm-vericrypt-basic to run in an enclave:
+Package smdishserver to run in an enclave:
 
 ```
 cd ~/src/makemanifest
 ./make_sgx.py -g ~/src/phoenix -k ~/share/phoenix/enclave-key.pem -p ~/src/memserver/deploy/smdishserver.conf -t $PWD -v -o smdishserver
 ```
 
-In one terminal, run sm-vericrypt-basic in an enclave:
+In one terminal, run smdishserver in an enclave:
 
 ```
 cd ~/src/makemanifest/smdishserver
@@ -190,7 +195,7 @@ cd ~/src/makemanifest/smdish
 ```
 
 
-### <a name="microbench-sm-vericrypt-basic-exitless"/> exitless
+### <a name="micro-bench-sm-vericrypt-basic-exitless"/> exitless
 
 Ensure that `~/src/memeserver/deploy/smdishserver.conf` has the directive:
 
@@ -220,7 +225,7 @@ cd ~/src/makemanifest
 ```
 
 
-### <a name="microbench-sm-vericrypt-non-sgx"/> non-SGX
+### <a name="micro-bench-sm-vericrypt-non-sgx"/> non-SGX
 
 In one terminal, run sm-vericrypt (smufserver) outside of an enclave:
 
@@ -237,7 +242,7 @@ cd ~/src/makemanifest/smbench
 ```
 
 
-### <a name="microbench-sm-vericrypt-sgx"/> SGX
+### <a name="micro-bench-sm-vericrypt-sgx"/> SGX
 
 Ensure that `~/src/memeserver/deploy/smufserver.conf` has the directive:
 
@@ -267,7 +272,7 @@ cd ~/src/makemanifest/smdish
 ```
 
 
-### <a name="microbench-sm-vericrypt-exitless"/> exitless
+### <a name="micro-bench-sm-vericrypt-exitless"/> exitless
 
 Ensure that `~/src/memeserver/deploy/smufserver.conf` has the directive:
 
