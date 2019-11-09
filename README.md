@@ -268,8 +268,8 @@ reset_phoenix_memfiles.sh
 In a second terminal, run smbench in an enclave:
 
 ```
-cd ~/src/makemanifest/smdish
-./smdish.manifest.sgx  /memserver0/foo /memserver0/foo 1024 10000
+cd ~/src/makemanifest/smbench
+./smbench.manifest.sgx  /memserver0/foo /memserver0/foo 1024 10000
 ```
 
 
@@ -287,3 +287,23 @@ Otherwise, repeat as with the the [SGX](#micro-bench-sm-vericrypt-sgx) case.
 sm-crypt
 --------
 
+Edit `~/src/memserver/bench/smbench.conf` and ensure there is the single 
+`MOUNT` directive:
+
+```
+MOUNT file:$HOME/var/phoenix/memfiles/0 /memserver0,/memfiles0 smc
+```
+
+Package `smbench` to run in an enclave:
+
+```
+cd ~/src/makemanifest
+./make_sgx.py -g ~/src/phoenix -k ~/share/phoenix/enclave-key.pem -p ~/src/memserver/bench/smbench.conf -t $PWD -v -o smbench
+```
+
+Run smbench in an enclave:
+
+```
+cd ~/src/makemanifest/smbench
+./smbench.manifest.sgx  /memserver0/foo /memserver0/foo 1024 10000
+```
