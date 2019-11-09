@@ -131,7 +131,7 @@ make
 sm-vericrypt-basic (smdish)
 ---------------------------
 
-Edit `~/src/memserver/bench/smbench.conf` and ensure there is is only a single 
+Edit `~/src/memserver/bench/smbench.conf` and ensure there is the single 
 `MOUNT` directive:
 
 ```
@@ -158,11 +158,11 @@ In a second terminal, run smbench within an enclave:
 
 ```
 cd ~/src/makemanifest/smbench
-./smbench.manifest.sgx  /memserver/foo /memserver/foo 1024 10000
+./smbench.manifest.sgx  /memserver0/foo /memserver0/foo 1024 10000
 ```
 
 This command will execute 10,000 critical sections that lock and unlock a
-1024-byte shared memory segment.
+1024-byte shared memory segment called `foo`.
 
 
 ### <a name="micro-bench-sm-vericrypt-basic-sgx"/> SGX
@@ -191,7 +191,7 @@ In a second terminal, run smbench in an enclave:
 
 ```
 cd ~/src/makemanifest/smdish
-./smdish.manifest.sgx  /memserver/foo /memserver/foo 1024 10000
+./smdish.manifest.sgx  /memserver0/foo /memserver0/foo 1024 10000
 ```
 
 
@@ -210,11 +210,11 @@ Otherwise, repeat as with the the [SGX](#micro-bench-sm-vericrypt-basic-sgx) cas
 sm-vericrypt (smuf)
 -------------------
 
-Edit `~/src/memserver/bench/smbench.conf` and ensure there is only a single
+Edit `~/src/memserver/bench/smbench.conf` and ensure there is the single
 `MOUNT` directive:
 
 ```
-MOUNT pipe:2011863273,file:$HOME/var/phoenix/memfiles /memserver,/memfiles smuf
+MOUNT pipe:2011863273,file:$HOME/var/phoenix/memfiles/0 /memserver0,/memfiles0 smuf
 ```
 
 Package `smbench` to run in an enclave:
@@ -227,18 +227,19 @@ cd ~/src/makemanifest
 
 ### <a name="micro-bench-sm-vericrypt-non-sgx"/> non-SGX
 
-In one terminal, run sm-vericrypt (smufserver) outside of an enclave:
+In one terminal, run smufserver outside of an enclave:
 
 ```
 reset_phoenix_memfiles.sh
-./smufserver -Z root.crt proc.crt proc.key -r $HOME/var/phoenix/memfiles -a /graphene/123456/77ea98e9
+cd ~/src/memserver/smuf
+./smufserver -Z root.crt proc.crt proc.key -r $HOME/var/phoenix/memfiles/0 -a /graphene/123456/77ea98e9
 ```
 
 In a second terminal, run smbench within an enclave:
 
 ```
 cd ~/src/makemanifest/smbench
-./smbench.manifest.sgx  /memserver/foo /memserver/foo 1024 10000
+./smbench.manifest.sgx  /memserver0/foo /memserver0/foo 1024 10000
 ```
 
 
@@ -261,14 +262,14 @@ In one terminal, run sm-vericrypt in an enclave:
 
 ```
 reset_phoenix_memfiles.sh
-./smufserver.manifest.sgx -Z /srv/root.crt /srv/proc.crt /srv/proc.key -r /memfiles /etc/ramones
+./smufserver.manifest.sgx -Z /srv/root.crt /srv/proc.crt /srv/proc.key -r /memfiles0 /etc/ramones
 ```
 
 In a second terminal, run smbench in an enclave:
 
 ```
 cd ~/src/makemanifest/smdish
-./smdish.manifest.sgx  /memserver/foo /memserver/foo 1024 10000
+./smdish.manifest.sgx  /memserver0/foo /memserver0/foo 1024 10000
 ```
 
 
