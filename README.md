@@ -135,7 +135,7 @@ Edit `~/src/memserver/bench/smbench.conf` and ensure there is the single
 `MOUNT` directive:
 
 ```
-MOUNT pipe:2011863273 /memserver smdish
+MOUNT pipe:2011863273 /memserver0 smdish
 ```
 
 Package `smbench` to run in an enclave:
