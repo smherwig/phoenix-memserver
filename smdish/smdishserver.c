@@ -134,8 +134,11 @@ static void smdish_server_destroy(struct smdish_server *server);
 static void smdish_server_config_ssl(struct smdish_server *server,
         const char *cafile, const char *certfile, const char *keyfile);
 
-static void smdish_server_socket_create(struct smdish_server *server,
+static void smdish_server_unix_socket_create(struct smdish_server *server,
         const char *udspath, bool anonymous);
+
+static void smdish_server_tcp4_socket_create(struct smdish_server *server,
+        short port);
 
 static void smdish_server_cb(struct rho_event *event, int what,
         struct rho_event_loop *loop);
@@ -1165,7 +1168,7 @@ smdish_server_config_ssl(struct smdish_server *server,
 }
 
 static void
-smdish_server_socket_create(struct smdish_server *server, const char *udspath,
+smdish_server_unix_socket_create(struct smdish_server *server, const char *udspath,
         bool anonymous)
 {
     size_t pathlen = 0;
@@ -1181,6 +1184,17 @@ smdish_server_socket_create(struct smdish_server *server, const char *udspath,
     
     sock = rho_sock_unixserver_create(server->srv_udspath, pathlen, 5);
     rho_sock_setnonblocking(sock);
+    server->srv_sock = sock;
+}
+
+static void
+smdish_server_tcp4_socket_create(struct smdish_server *server, short port)
+{
+    struct rho_sock *sock = NULL; 
+    
+    sock = rho_sock_tcp4server_create(NULL, port, 5);
+    rho_sock_setnonblocking(sock);
+    rhoL_setsockopt_disable_nagle(sock->fd);
     server->srv_sock = sock;
 }
 
@@ -1208,7 +1222,13 @@ smdish_server_cb(struct rho_event *event, int what,
         rho_errno_die(errno, "accept failed");
     /* TODO: check that addrlen == sizeof struct soackaddr_un */
 
-    csock = rho_sock_unix_from_fd(cfd);
+    if (server->srv_sock->af == AF_UNIX) {
+        csock = rho_sock_unix_from_fd(cfd);
+    } else {
+        /* TCP */
+        rhoL_setsockopt_disable_nagle(cfd);
+        csock = rho_sock_tcp_from_fd(cfd);
+    }
     rho_sock_setnonblocking(csock);
     if (server->srv_sc != NULL)
         rho_ssl_wrap(csock, server->srv_sc);
@@ -1249,9 +1269,12 @@ smdish_log_init(const char *logfile, bool verbose)
 }
 
 #define SMDISHSERVER_USAGE \
-    "usage: smdish [options] UDSPATH\n" \
+    "usage: smdish [options]\n" \
     "\n" \
     "OPTIONS:\n" \
+    "\n" \
+    " One of -p or -u must be specified.\n" \
+    "\n" \
     "   -a\n" \
     "       Treat UDSPATH as an abstract socket\n" \
     "       (adds a leading nul byte to UDSPATH)\n" \
@@ -1266,17 +1289,19 @@ smdish_log_init(const char *logfile, bool verbose)
     "       Log file to use.  If not specified, logs are printed to stderr.\n" \
     "       If specified, stderr is also redirected to the log file.\n" \
     "\n" \
+    "   -p PORT\n" \
+    "       Server should listen on TCP address *:PORT \n" \
+    "\n" \
+    "   -u UNIX_DOMAIN_SOCKET_PATH\n" \
+    "       Server should listen on the specified UNIX domain socket.  See\n" \
+    "       also the -a flag.\n" \
+    "\n" \
     "   -v\n" \
     "       Verbose logging.\n" \
     "\n" \
     "   -Z  CACERT CERT PRIVKEY\n" \
     "       Sets the path to the server certificate file and private key\n" \
-    "       in PEM format.  This also causes the server to start SSL mode\n" \
-    "\n" \
-    "\n" \
-    "ARGUMENTS:\n" \
-    "   UDSPATH\n" \
-    "       The path to the UNIX domain socket to listen to connections on\n" \
+    "       in PEM format.  This also causes the server to start SSL mode\n"
 
 static void
 usage(int exitcode)
@@ -1293,7 +1318,11 @@ main(int argc, char *argv[])
     struct rho_event *event = NULL;
     struct rho_event_loop *loop = NULL;
     /* options */
+    bool addr_tcp4 = false;
+    short port;
+    bool addr_unix = false;
     bool anonymous = false;
+    const char *udspath = NULL;
     bool daemonize  = false;
     const char *logfile = NULL;
     bool verbose = false;
@@ -1301,7 +1330,7 @@ main(int argc, char *argv[])
     rho_ssl_init();
 
     server  = smdish_server_alloc();
-    while ((c = getopt(argc, argv, "adhl:vZ:")) != -1) {
+    while ((c = getopt(argc, argv, "adhl:p:u:vZ:")) != -1) {
         switch (c) {
         case 'a':
             anonymous = true;
@@ -1314,6 +1343,14 @@ main(int argc, char *argv[])
             break;
         case 'l':
             logfile = optarg;
+            break;
+        case 'p':
+            port = rho_str_toshort(optarg, 10);
+            addr_tcp4 = true;
+            break;
+        case 'u':
+            udspath = optarg;
+            addr_unix = true;
             break;
         case 'v':
             verbose = true;
@@ -1332,15 +1369,34 @@ main(int argc, char *argv[])
     argc -= optind;
     argv += optind;
 
-    if (argc != 1)
+    if (argc != 0)
         usage(EXIT_FAILURE);
+
+    if (!addr_unix && !addr_tcp4) {
+        fprintf(stderr, "must specifiy either -p or -u\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (addr_unix && addr_tcp4) {
+        fprintf(stderr, "must specifiy one of -p or -u, not both\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (addr_tcp4 && anonymous) {
+        fprintf(stderr, "cannot speicfy -p and -a together\n");
+        exit(EXIT_FAILURE);
+    }
 
     if (daemonize)
         rho_daemon_daemonize(NULL, 0);
 
     smdish_log_init(logfile, verbose);
 
-    smdish_server_socket_create(server, argv[0], anonymous);
+    if (addr_unix) 
+        smdish_server_unix_socket_create(server, udspath, anonymous);
+    else
+        smdish_server_tcp4_socket_create(server, port);
+
 
     event = rho_event_create(server->srv_sock->fd, RHO_EVENT_READ | RHO_EVENT_PERSIST, 
             smdish_server_cb, server); 
